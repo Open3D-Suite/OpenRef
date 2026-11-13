@@ -46,4 +46,7 @@ What changed for users in each version of OpenRef, newest first.
 - **Colour picker.** Hold S and click to copy the colour under the mouse as HEX (RGB and HSV are shown
   too); keep the button down and leave the window to pick from any other program. Also in the menu.
 - **Note looks**: dark, light, yellow or no background, and four text sizes.
+- **English and Spanish.** OpenRef starts in English; Window ▸ Language switches to Spanish (menus,
+  notices, dialogs and shortcut names) and it is remembered.
+- **Its own icon**: a red push pin, on the executable and the window.
 - Everything is also in the right-click menu, with its shortcut, grouped so it fits small windows.

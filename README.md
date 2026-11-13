@@ -33,10 +33,7 @@ suite of open-source tools for 3D work.
 - Autosave every minute while there are changes; after a crash the next start offers the board
   back. The copies live in `%LOCALAPPDATA%\OpenRef\recovery`.
 - Everything in the right-click menu, with its shortcut.
-
-## Still to come for 0.1.0
-
-- A Spanish interface and an icon.
+- English by default; Spanish from Window ▸ Language.
 
 `.oref` boards are zip files: `board.json` describes the board and `images/` holds the original
 files, so any zip tool can take the pictures out.

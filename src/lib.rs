@@ -10,6 +10,7 @@ pub mod images;
 pub mod platform;
 pub mod recovery;
 pub mod scene;
+pub mod text;
 pub mod window;
 
 /// The program's version, as in Cargo.toml.

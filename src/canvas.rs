@@ -7,6 +7,7 @@ use crate::board_file::View;
 use crate::history::History;
 use crate::images::{ImageStore, Source, Textures};
 use crate::scene::{wrap_angle, ImageKey, Item, ItemId, ItemKind, Scene, NOTE_PADDING};
+use crate::text::{tr, Lang};
 use egui::epaint::TextShape;
 use egui::{
     pos2, vec2, Align2, Color32, CursorIcon, FontId, Mesh, PointerButton, Pos2, Rect, Response, Sense,
@@ -163,6 +164,7 @@ pub struct Editor {
     pub see_through: f32,
     /// No board colour behind the items.
     pub transparent_background: bool,
+    pub lang: Lang,
 }
 
 /// The box a note needs for its text, in world units at scale 1.
@@ -189,6 +191,7 @@ impl Editor {
             locked: false,
             see_through: 1.0,
             transparent_background: false,
+            lang: Lang::En,
         }
     }
 
@@ -752,6 +755,7 @@ impl Editor {
     }
 
     fn paint(&mut self, ui: &Ui, rect: Rect, pointer: Option<Pos2>) {
+        let lang = self.lang;
         let painter = ui.painter_at(rect);
         let background = if self.transparent_background { Color32::TRANSPARENT } else { BACKGROUND.gamma_multiply(self.see_through) };
         painter.rect_filled(rect, 0.0, background);
@@ -794,7 +798,7 @@ impl Editor {
                             let failed = matches!(self.images.textures(*image, false), Some(Textures::Failed(_)) | None);
                             let fill = if failed { Color32::from_rgb(90, 40, 40) } else { Color32::from_gray(55) };
                             painter.add(Shape::convex_polygon(corners.to_vec(), fill, Stroke::NONE));
-                            let label = if failed { "Cannot show this image" } else { "Loading…" };
+                            let label = if failed { tr(lang, "Cannot show this image") } else { tr(lang, "Loading…") };
                             if bounds.width() > 80.0 && bounds.height() > 24.0 {
                                 painter.text(
                                     bounds.center(),
@@ -858,7 +862,7 @@ impl Editor {
             painter.text(
                 rect.center_top() + vec2(0.0, 14.0),
                 Align2::CENTER_TOP,
-                "Cropping: drag the handles, drag inside to slide the picture. Enter or click outside to finish.",
+                tr(lang, "Cropping: drag the handles, drag inside to slide the picture. Enter or click outside to finish."),
                 FontId::proportional(13.0),
                 Color32::from_gray(200),
             );
@@ -888,11 +892,11 @@ impl Editor {
         if self.scene.is_empty() {
             let c = rect.center();
             let hint = Color32::from_gray(150);
-            painter.text(c - vec2(0.0, 12.0), Align2::CENTER_CENTER, "Paste (Ctrl+V) or drop images here", FontId::proportional(18.0), hint);
+            painter.text(c - vec2(0.0, 12.0), Align2::CENTER_CENTER, tr(lang, "Paste (Ctrl+V) or drop images here"), FontId::proportional(18.0), hint);
             painter.text(
                 c + vec2(0.0, 16.0),
                 Align2::CENTER_CENTER,
-                "Right-click for everything else",
+                tr(lang, "Right-click for everything else"),
                 FontId::proportional(13.0),
                 Color32::from_gray(110),
             );

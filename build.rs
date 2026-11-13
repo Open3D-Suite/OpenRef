@@ -3,6 +3,7 @@
 
 fn main() {
     println!("cargo:rerun-if-changed=assets/icon.ico");
+    println!("cargo:rerun-if-changed=assets/icon-256.png");
     println!("cargo:rerun-if-changed=build.rs");
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
         return;

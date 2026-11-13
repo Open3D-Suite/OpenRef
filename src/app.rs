@@ -7,6 +7,7 @@ use crate::canvas::{Editor, BACKGROUND};
 use crate::images::{self, ImageStore, Source};
 use crate::platform;
 use crate::scene::{Align, ItemKind, MatchSize, Scene};
+use crate::text::{tf, tr, Lang};
 use crate::{export, recovery};
 use eframe::egui::{self, Color32, Key, KeyboardShortcut, Modifiers, Vec2};
 use serde::{Deserialize, Serialize};
@@ -21,6 +22,7 @@ pub fn run(files: Vec<PathBuf>) -> eframe::Result<()> {
         viewport: egui::ViewportBuilder::default()
             .with_app_id("OpenRef")
             .with_title("OpenRef")
+            .with_icon(eframe::icon_data::from_png_bytes(include_bytes!("../assets/icon-256.png")).unwrap_or_default())
             .with_inner_size([1000.0, 700.0])
             .with_min_inner_size([240.0, 160.0])
             .with_drag_and_drop(true)
@@ -85,6 +87,7 @@ pub enum Action {
     MatchSize(MatchSize),
     ExportImages,
     ExportBoard,
+    SetLanguage(Lang),
 }
 
 /// Note looks: name, text colour, background.
@@ -138,7 +141,8 @@ const SHORTCUTS: &[(Modifiers, Key, Action)] = &[
     (Modifiers::NONE, Key::C, Action::Crop),
 ];
 
-fn shortcut_text(action: Action) -> String {
+fn shortcut_text(lang: Lang, action: Action) -> String {
+    let t = |en: &'static str| tr(lang, en);
     SHORTCUTS
         .iter()
         .find(|(_, _, a)| *a == action)
@@ -151,9 +155,18 @@ fn shortcut_text(action: Action) -> String {
                 parts.push("Alt");
             }
             if m.shift {
-                parts.push("Shift");
+                parts.push(tr(lang, "Shift"));
             }
-            let key = k.name();
+            let key = match k {
+                Key::Delete => t("Del"),
+                Key::Space => t("Space"),
+                Key::Enter => t("Enter"),
+                Key::Escape => t("Escape"),
+                Key::Backspace => t("Backspace"),
+                Key::ArrowUp => t("Up"),
+                Key::ArrowDown => t("Down"),
+                _ => k.name(),
+            };
             parts.push(key);
             parts.join("+")
         })
@@ -178,11 +191,20 @@ struct Settings {
     /// How much of the window shows (1 = opaque).
     see_through: f32,
     transparent_background: bool,
+    /// English unless the user chose Spanish (not taken from Windows).
+    lang: Lang,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { always_on_top: false, folder: None, frameless: false, see_through: 1.0, transparent_background: false }
+        Self {
+            always_on_top: false,
+            folder: None,
+            frameless: false,
+            see_through: 1.0,
+            transparent_background: false,
+            lang: Lang::En,
+        }
     }
 }
 
@@ -234,6 +256,7 @@ impl OpenRefApp {
         let mut editor = Editor::new(ImageStore::new(cc.egui_ctx.clone(), max_side));
         editor.see_through = settings.see_through.clamp(0.1, 1.0);
         editor.transparent_background = settings.transparent_background;
+        editor.lang = settings.lang;
         Self {
             editor,
             path: None,
@@ -257,7 +280,7 @@ impl OpenRefApp {
         let value = value.clamp(0.1, 1.0);
         self.settings.see_through = value;
         self.editor.see_through = value;
-        self.notify(ctx, format!("Window {:.0} % visible", value * 100.0));
+        self.say_with(ctx, "Window {percent} % visible", &[("percent", &format!("{:.0}", value * 100.0))]);
     }
 
     fn set_click_through(&mut self, ctx: &egui::Context, on: bool) {
@@ -269,27 +292,28 @@ impl OpenRefApp {
                 Ok(shortcut) => {
                     self.click_through = Some(shortcut);
                     ctx.send_viewport_cmd(egui::ViewportCommand::MousePassthrough(true));
-                    self.notify(ctx, "The mouse now goes through OpenRef. Ctrl+Alt+T brings it back.");
+                    self.say(ctx, "The mouse now goes through OpenRef. Ctrl+Alt+T brings it back.");
                 }
-                Err(error) => self.notify(ctx, format!("Click-through is not available: {error}")),
+                Err(error) => self.say_with(ctx, "Click-through is not available: {error}", &[("error", &error)]),
             }
         } else {
             self.click_through = None;
             ctx.send_viewport_cmd(egui::ViewportCommand::MousePassthrough(false));
             ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
-            self.notify(ctx, "OpenRef takes the mouse again");
+            self.say(ctx, "OpenRef takes the mouse again");
         }
     }
 
     /// Writes the selected images (or all) into a folder, each as its own file.
     fn export_images(&mut self, ctx: &egui::Context, frame: &eframe::Frame) {
+        let lang = self.settings.lang;
         let targets = self.editor.targets();
         let items: Vec<_> = self.editor.scene.items.iter().filter(|i| targets.contains(&i.id) && i.is_image()).cloned().collect();
         if items.is_empty() {
-            self.notify(ctx, "There are no images to export");
+            self.say(ctx, "There are no images to export");
             return;
         }
-        let mut dialog = rfd::FileDialog::new().set_title("Export images to…").set_parent(frame);
+        let mut dialog = rfd::FileDialog::new().set_title(tr(lang, "Export images to…")).set_parent(frame);
         if let Some(folder) = self.dialog_folder() {
             dialog = dialog.set_directory(folder);
         }
@@ -308,21 +332,23 @@ impl OpenRefApp {
             }
         }
         match failed.first() {
-            None => self.notify(ctx, format!("{written} image{} exported", if written == 1 { "" } else { "s" })),
-            Some(first) => self.notify(ctx, format!("{written} exported; could not export {first}")),
+            None if written == 1 => self.say(ctx, "1 image exported"),
+            None => self.say_with(ctx, "{count} images exported", &[("count", &written)]),
+            Some(first) => self.say_with(ctx, "{count} exported; could not export {what}", &[("count", &written), ("what", first)]),
         }
     }
 
     /// Saves the selection (or the whole board) as one PNG, at the full size of its images.
     fn export_board(&mut self, ctx: &egui::Context, frame: &eframe::Frame) {
+        let lang = self.settings.lang;
         if self.exporting.is_some() {
-            self.notify(ctx, "A picture is still being made");
+            self.say(ctx, "A picture is still being made");
             return;
         }
         let targets = self.editor.targets();
         let items: Vec<_> = self.editor.scene.items.iter().filter(|i| targets.contains(&i.id)).cloned().collect();
         let Some(bounds) = items.iter().map(|i| i.bounds()).reduce(|a, b| a.union(b)) else {
-            self.notify(ctx, "The board is empty");
+            self.say(ctx, "The board is empty");
             return;
         };
         // As sharp as the most shrunk image needs, within the size limit.
@@ -330,8 +356,8 @@ impl OpenRefApp {
         let limit = export::MAX_BOARD_SIDE as f32 / bounds.width().max(bounds.height()).max(1.0);
         let scale = wanted.min(limit);
         let mut dialog = rfd::FileDialog::new()
-            .set_title("Export board as PNG")
-            .add_filter("PNG image", &["png"])
+            .set_title(tr(lang, "Export board as PNG"))
+            .add_filter(tr(lang, "PNG image"), &["png"])
             .set_file_name(self.board_name() + ".png")
             .set_parent(frame);
         if let Some(folder) = self.dialog_folder() {
@@ -355,7 +381,7 @@ impl OpenRefApp {
             repaint.request_repaint();
         });
         self.exporting = Some((path, rx));
-        self.notify(ctx, format!("Making a {w} × {h} picture…"));
+        self.say_with(ctx, "Making a {width} × {height} picture…", &[("width", &w), ("height", &h)]);
     }
 
     /// Changes the selected notes' letter size and/or colours, keeping their top-left corners.
@@ -376,7 +402,7 @@ impl OpenRefApp {
             })
             .collect();
         if changes.is_empty() {
-            self.notify(ctx, "Select notes to change them");
+            self.say(ctx, "Select notes to change them");
             return;
         }
         self.editor.change(|scene, _| {
@@ -385,6 +411,18 @@ impl OpenRefApp {
                 scene.set_note_text(id, text, box_size);
             }
         });
+    }
+
+    /// A notice in the chosen language.
+    fn say(&mut self, ctx: &egui::Context, en: &'static str) {
+        let text = tr(self.settings.lang, en);
+        self.notify(ctx, text);
+    }
+
+    /// A notice from a template with fields, in the chosen language.
+    fn say_with(&mut self, ctx: &egui::Context, en: &'static str, fields: &[(&str, &dyn std::fmt::Display)]) {
+        let text = tf(self.settings.lang, en, fields);
+        self.notify(ctx, text);
     }
 
     fn notify(&mut self, ctx: &egui::Context, text: impl Into<String>) {
@@ -403,6 +441,7 @@ impl OpenRefApp {
     }
 
     fn run_action(&mut self, ctx: &egui::Context, frame: &eframe::Frame, action: Action) {
+        let lang = self.settings.lang;
         let pointer = ctx.input(|i| i.pointer.hover_pos());
         let editor = &mut self.editor;
         match action {
@@ -416,8 +455,8 @@ impl OpenRefApp {
             }
             Action::ImportImages => {
                 let mut dialog = rfd::FileDialog::new()
-                    .set_title("Add images")
-                    .add_filter("Images", IMAGE_EXTENSIONS)
+                    .set_title(tr(lang, "Add images"))
+                    .add_filter(tr(lang, "Images"), IMAGE_EXTENSIONS)
                     .set_parent(frame);
                 if let Some(folder) = self.dialog_folder() {
                     dialog = dialog.set_directory(folder);
@@ -474,7 +513,7 @@ impl OpenRefApp {
                 if editor.single().is_some_and(|i| i.is_image()) {
                     editor.start_crop();
                 } else {
-                    self.notify(ctx, "Select one image to crop");
+                    self.say(ctx, "Select one image to crop");
                 }
             }
             Action::ResetCrop => {
@@ -492,7 +531,7 @@ impl OpenRefApp {
                 self.settings.frameless = !self.settings.frameless;
                 ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(!self.settings.frameless));
                 if self.settings.frameless {
-                    self.notify(ctx, "No frame: move the window from the bar at the top");
+                    self.say(ctx, "No frame: move the window from the bar at the top");
                 }
             }
             Action::ClickThrough => {
@@ -515,7 +554,7 @@ impl OpenRefApp {
             }
             Action::PickColor => {
                 self.picking = true;
-                self.notify(ctx, "Click anywhere on the screen to copy its colour (drag out of the window)");
+                self.say(ctx, "Click anywhere on the screen to copy its colour (drag out of the window)");
             }
             Action::NoteSize(size) => self.style_notes(ctx, Some(size as f32), None),
             Action::NoteStyle(n) => {
@@ -553,7 +592,7 @@ impl OpenRefApp {
             Action::Distribute(horizontal) => {
                 let targets = editor.targets();
                 if targets.len() < 3 {
-                    self.notify(ctx, "Distributing needs three items or more");
+                    self.say(ctx, "Distributing needs three items or more");
                 } else {
                     editor.change(|scene, _| scene.distribute(&targets, horizontal));
                 }
@@ -564,6 +603,11 @@ impl OpenRefApp {
             }
             Action::ExportImages => self.export_images(ctx, frame),
             Action::ExportBoard => self.export_board(ctx, frame),
+            Action::SetLanguage(new) => {
+                self.settings.lang = new;
+                self.editor.lang = new;
+                self.title.clear();
+            }
             Action::BringToFront => editor.change(|scene, selection| scene.restack(selection, true)),
             Action::SendToBack => editor.change(|scene, selection| scene.restack(selection, false)),
             Action::Pack => {
@@ -589,7 +633,7 @@ impl OpenRefApp {
                 };
                 ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(level));
                 let text = if self.settings.always_on_top { "Always on top" } else { "Not on top" };
-                self.notify(ctx, text);
+                self.say(ctx, text);
             }
         }
     }
@@ -619,19 +663,20 @@ impl OpenRefApp {
         let count = sources.len();
         self.editor.add_images(sources, at);
         match (count, problems.first()) {
-            (_, Some(problem)) if problems.len() == 1 => self.notify(ctx, format!("Could not add {problem}")),
-            (_, Some(_)) => self.notify(ctx, format!("Could not add {} files", problems.len())),
+            (_, Some(problem)) if problems.len() == 1 => self.say_with(ctx, "Could not add {what}", &[("what", problem)]),
+            (_, Some(_)) => self.say_with(ctx, "Could not add {count} files", &[("count", &problems.len())]),
             (0, None) => {}
-            (1, None) => self.notify(ctx, "1 image added"),
-            (n, None) => self.notify(ctx, format!("{n} images added")),
+            (1, None) => self.say(ctx, "1 image added"),
+            (n, None) => self.say_with(ctx, "{count} images added", &[("count", &n)]),
         }
     }
 
     /// Pastes files copied in Explorer, an image, or the path of an image file.
     fn paste(&mut self, ctx: &egui::Context, pointer: Option<egui::Pos2>) {
+        let lang = self.settings.lang;
         let at = self.editor.drop_point(pointer);
         let Some(clipboard) = self.clipboard.as_mut() else {
-            self.notify(ctx, "The clipboard is not available");
+            self.say(ctx, "The clipboard is not available");
             return;
         };
         if let Ok(files) = clipboard.get().file_list() {
@@ -647,12 +692,12 @@ impl OpenRefApp {
             }
         }
         if let Ok(image) = clipboard.get_image() {
-            match Source::from_rgba(image.width as u32, image.height as u32, &image.bytes, "Pasted image") {
+            match Source::from_rgba(image.width as u32, image.height as u32, &image.bytes, tr(lang, "Pasted image")) {
                 Ok(source) => {
                     self.editor.add_images(vec![source], at);
-                    self.notify(ctx, "Image pasted");
+                    self.say(ctx, "Image pasted");
                 }
-                Err(error) => self.notify(ctx, format!("Could not paste the image: {error}")),
+                Err(error) => self.say_with(ctx, "Could not paste the image: {error}", &[("error", &error)]),
             }
             return;
         }
@@ -670,7 +715,7 @@ impl OpenRefApp {
                 return;
             }
         }
-        self.notify(ctx, "There is nothing to paste");
+        self.say(ctx, "There is nothing to paste");
     }
 
     /// Copies the selected image (as seen: cropped, flipped, grayscale) to the clipboard.
@@ -678,14 +723,14 @@ impl OpenRefApp {
         let editor = &self.editor;
         let mut chosen = editor.scene.items.iter().filter(|i| editor.selection.contains(&i.id));
         let (Some(item), None) = (chosen.next(), chosen.next()) else {
-            self.notify(ctx, "Select one image or note to copy");
+            self.say(ctx, "Select one image or note to copy");
             return;
         };
         let ItemKind::Image { image, crop, grayscale } = &item.kind else {
             if let ItemKind::Note { text, .. } = &item.kind {
                 let text = text.clone();
                 ctx.copy_text(text);
-                self.notify(ctx, "Note copied");
+                self.say(ctx, "Note copied");
             }
             return;
         };
@@ -720,18 +765,19 @@ impl OpenRefApp {
             (Err(error), _) => Err(error),
         };
         match copied {
-            Ok(()) => self.notify(ctx, "Image copied"),
-            Err(error) => self.notify(ctx, format!("Could not copy: {error}")),
+            Ok(()) => self.say(ctx, "Image copied"),
+            Err(error) => self.say_with(ctx, "Could not copy: {error}", &[("error", &error)]),
         }
     }
 
     fn save(&mut self, ctx: &egui::Context, frame: &eframe::Frame, choose: bool) -> bool {
+        let lang = self.settings.lang;
         let path = match (&self.path, choose) {
             (Some(path), false) => path.clone(),
             _ => {
                 let mut dialog = rfd::FileDialog::new()
-                    .set_title("Save board")
-                    .add_filter("OpenRef board", &[EXTENSION])
+                    .set_title(tr(lang, "Save board"))
+                    .add_filter(tr(lang, "OpenRef board"), &[EXTENSION])
                     .set_file_name(self.board_name() + "." + EXTENSION)
                     .set_parent(frame);
                 if let Some(folder) = self.path.as_ref().and_then(|p| p.parent().map(Path::to_path_buf)).or(self.dialog_folder()) {
@@ -751,23 +797,24 @@ impl OpenRefApp {
                 self.path = Some(path);
                 self.editor.dirty = false;
                 self.autosave.forget();
-                self.notify(ctx, "Saved");
+                self.say(ctx, "Saved");
                 true
             }
             Err(error) => {
-                self.notify(ctx, format!("Could not save: {error}"));
+                self.say_with(ctx, "Could not save: {error}", &[("error", &error)]);
                 false
             }
         }
     }
 
     fn open(&mut self, ctx: &egui::Context, frame: &eframe::Frame, path: Option<PathBuf>) {
+        let lang = self.settings.lang;
         let path = match path {
             Some(path) => path,
             None => {
                 let mut dialog = rfd::FileDialog::new()
-                    .set_title("Open board")
-                    .add_filter("OpenRef board", &[EXTENSION])
+                    .set_title(tr(lang, "Open board"))
+                    .add_filter(tr(lang, "OpenRef board"), &[EXTENSION])
                     .set_parent(frame);
                 if let Some(folder) = self.dialog_folder() {
                     dialog = dialog.set_directory(folder);
@@ -785,16 +832,17 @@ impl OpenRefApp {
                 self.remember_folder(&path);
                 self.path = Some(path);
             }
-            Err(error) => self.notify(ctx, format!("Could not open the board: {error}")),
+            Err(error) => self.say_with(ctx, "Could not open the board: {error}", &[("error", &error)]),
         }
     }
 
     fn board_name(&self) -> String {
+        let lang = self.settings.lang;
         self.path
             .as_ref()
             .and_then(|p| p.file_stem())
             .map(|s| s.to_string_lossy().into_owned())
-            .unwrap_or_else(|| "Untitled".into())
+            .unwrap_or_else(|| tr(lang, "Untitled").into())
     }
 
     fn update_title(&mut self, ctx: &egui::Context) {
@@ -873,12 +921,14 @@ impl OpenRefApp {
     }
 
     fn menu(&mut self, ui: &mut egui::Ui, frame: &eframe::Frame) {
+        let lang = self.settings.lang;
+        let t = |en: &'static str| tr(lang, en);
         let has_items = !self.editor.scene.is_empty();
         let has_selection = !self.editor.selection.is_empty();
         let ctx = ui.ctx().clone();
         let mut chosen = None;
         let mut item = |ui: &mut egui::Ui, label: &str, action: Action, enabled: bool| {
-            let button = egui::Button::new(label).shortcut_text(shortcut_text(action));
+            let button = egui::Button::new(label).shortcut_text(shortcut_text(lang, action));
             if ui.add_enabled(enabled, button).clicked() {
                 chosen = Some(action);
                 ui.close();
@@ -892,92 +942,97 @@ impl OpenRefApp {
             .iter()
             .any(|i| self.editor.selection.contains(&i.id) && !i.is_image());
         // Short at the top level, the rest in submenus, so the menu fits small windows.
-        item(ui, "Paste", Action::Paste, true);
-        item(ui, "Copy", Action::Copy, single.is_some());
-        item(ui, "Add images…", Action::ImportImages, true);
-        item(ui, "Add note", Action::AddNote, true);
+        item(ui, t("Paste"), Action::Paste, true);
+        item(ui, t("Copy"), Action::Copy, single.is_some());
+        item(ui, t("Add images…"), Action::ImportImages, true);
+        item(ui, t("Add note"), Action::AddNote, true);
         ui.separator();
-        item(ui, "Undo", Action::Undo, self.editor.history.can_undo());
-        item(ui, "Redo", Action::Redo, self.editor.history.can_redo());
-        item(ui, "Duplicate", Action::Duplicate, has_selection);
-        item(ui, "Delete", Action::Delete, has_selection);
+        item(ui, t("Undo"), Action::Undo, self.editor.history.can_undo());
+        item(ui, t("Redo"), Action::Redo, self.editor.history.can_redo());
+        item(ui, t("Duplicate"), Action::Duplicate, has_selection);
+        item(ui, t("Delete"), Action::Delete, has_selection);
         ui.separator();
-        ui.menu_button("Image", |ui| {
-            item(ui, "Crop", Action::Crop, single == Some(true));
-            item(ui, "Reset crop", Action::ResetCrop, has_items);
-            item(ui, "Flip horizontally", Action::FlipHorizontal, has_items);
-            item(ui, "Flip vertically", Action::FlipVertical, has_items);
-            item(ui, "Grayscale", Action::Grayscale, has_items);
-            item(ui, "Reset transform", Action::ResetTransform, has_items);
-            ui.menu_button("Opacity", |ui| {
+        ui.menu_button(t("Image"), |ui| {
+            item(ui, t("Crop"), Action::Crop, single == Some(true));
+            item(ui, t("Reset crop"), Action::ResetCrop, has_items);
+            item(ui, t("Flip horizontally"), Action::FlipHorizontal, has_items);
+            item(ui, t("Flip vertically"), Action::FlipVertical, has_items);
+            item(ui, t("Grayscale"), Action::Grayscale, has_items);
+            item(ui, t("Reset transform"), Action::ResetTransform, has_items);
+            ui.menu_button(t("Opacity"), |ui| {
                 for percent in [100u8, 75, 50, 25] {
                     item(ui, &format!("{percent} %"), Action::Opacity(percent), has_items);
                 }
             });
         });
         ui.add_enabled_ui(has_notes, |ui| {
-            ui.menu_button("Note", |ui| {
-                item(ui, "Edit note", Action::EditNote, single == Some(false));
+            ui.menu_button(t("Note"), |ui| {
+                item(ui, t("Edit note"), Action::EditNote, single == Some(false));
                 ui.separator();
                 for (n, (name, _, _)) in NOTE_STYLES.iter().enumerate() {
-                    item(ui, name, Action::NoteStyle(n as u8), true);
+                    item(ui, t(name), Action::NoteStyle(n as u8), true);
                 }
                 ui.separator();
-                for (name, size) in [("Small text", 16u8), ("Medium text", 24), ("Large text", 40), ("Huge text", 72)] {
+                for (name, size) in [(t("Small text"), 16u8), (t("Medium text"), 24), (t("Large text"), 40), (t("Huge text"), 72)] {
                     item(ui, name, Action::NoteSize(size), true);
                 }
             });
         });
-        ui.menu_button("Arrange", |ui| {
-            item(ui, "Select all", Action::SelectAll, has_items);
-            item(ui, "Pack to window", Action::Pack, has_items);
-            item(ui, "Bring to front", Action::BringToFront, has_selection);
-            item(ui, "Send to back", Action::SendToBack, has_selection);
+        ui.menu_button(t("Arrange"), |ui| {
+            item(ui, t("Select all"), Action::SelectAll, has_items);
+            item(ui, t("Pack to window"), Action::Pack, has_items);
+            item(ui, t("Bring to front"), Action::BringToFront, has_selection);
+            item(ui, t("Send to back"), Action::SendToBack, has_selection);
             ui.separator();
-            item(ui, "Arrange by name", Action::ArrangeByName, has_items);
-            ui.menu_button("Align", |ui| {
+            item(ui, t("Arrange by name"), Action::ArrangeByName, has_items);
+            ui.menu_button(t("Align"), |ui| {
                 for (label, how) in [
-                    ("Left edges", Align::Left),
-                    ("Right edges", Align::Right),
-                    ("Top edges", Align::Top),
-                    ("Bottom edges", Align::Bottom),
-                    ("Centres in a column", Align::CenterX),
-                    ("Centres in a row", Align::CenterY),
+                    (t("Left edges"), Align::Left),
+                    (t("Right edges"), Align::Right),
+                    (t("Top edges"), Align::Top),
+                    (t("Bottom edges"), Align::Bottom),
+                    (t("Centres in a column"), Align::CenterX),
+                    (t("Centres in a row"), Align::CenterY),
                 ] {
                     item(ui, label, Action::Align(how), has_selection);
                 }
             });
-            ui.menu_button("Distribute", |ui| {
-                item(ui, "Horizontally", Action::Distribute(true), has_selection);
-                item(ui, "Vertically", Action::Distribute(false), has_selection);
+            ui.menu_button(t("Distribute"), |ui| {
+                item(ui, t("Horizontally"), Action::Distribute(true), has_selection);
+                item(ui, t("Vertically"), Action::Distribute(false), has_selection);
             });
-            ui.menu_button("Same size", |ui| {
-                item(ui, "Same height", Action::MatchSize(MatchSize::Height), has_items);
-                item(ui, "Same width", Action::MatchSize(MatchSize::Width), has_items);
-                item(ui, "Same area", Action::MatchSize(MatchSize::Area), has_items);
+            ui.menu_button(t("Same size"), |ui| {
+                item(ui, t("Same height"), Action::MatchSize(MatchSize::Height), has_items);
+                item(ui, t("Same width"), Action::MatchSize(MatchSize::Width), has_items);
+                item(ui, t("Same area"), Action::MatchSize(MatchSize::Area), has_items);
             });
             ui.separator();
-            item(ui, "Frame selection", Action::Focus, has_items);
-            item(ui, "Frame everything", Action::FocusAll, has_items);
+            item(ui, t("Frame selection"), Action::Focus, has_items);
+            item(ui, t("Frame everything"), Action::FocusAll, has_items);
         });
         ui.separator();
-        item(ui, "Pick a colour", Action::PickColor, true);
-        ui.menu_button("Board", |ui| {
-            item(ui, "New board", Action::New, true);
-            item(ui, "Open board…", Action::Open, true);
-            item(ui, "Save board", Action::Save, has_items);
-            item(ui, "Save board as…", Action::SaveAs, has_items);
+        item(ui, t("Pick a colour"), Action::PickColor, true);
+        ui.menu_button(t("Board"), |ui| {
+            item(ui, t("New board"), Action::New, true);
+            item(ui, t("Open board…"), Action::Open, true);
+            item(ui, t("Save board"), Action::Save, has_items);
+            item(ui, t("Save board as…"), Action::SaveAs, has_items);
             ui.separator();
-            item(ui, "Export images…", Action::ExportImages, has_items);
-            item(ui, "Export as PNG…", Action::ExportBoard, has_items);
+            item(ui, t("Export images…"), Action::ExportImages, has_items);
+            item(ui, t("Export as PNG…"), Action::ExportBoard, has_items);
         });
-        ui.menu_button("Window", |ui| {
-            let check = |on: bool, label: &str| if on { format!("✔ {label}") } else { label.to_string() };
-            item(ui, &check(self.settings.always_on_top, "Always on top"), Action::AlwaysOnTop, true);
-            item(ui, &check(self.settings.frameless, "No frame"), Action::Frameless, true);
-            item(ui, &check(self.settings.transparent_background, "Transparent background"), Action::TransparentBackground, true);
-            item(ui, "Click-through", Action::ClickThrough, true);
-            ui.menu_button("Visible", |ui| {
+        ui.menu_button(t("Window"), |ui| {
+            // A bullet marks the current choice (the default fonts have no check mark).
+            let check = |on: bool, label: &str| if on { format!("• {label}") } else { label.to_string() };
+            item(ui, &check(self.settings.always_on_top, t("Always on top")), Action::AlwaysOnTop, true);
+            item(ui, &check(self.settings.frameless, t("No frame")), Action::Frameless, true);
+            item(ui, &check(self.settings.transparent_background, t("Transparent background")), Action::TransparentBackground, true);
+            item(ui, t("Click-through"), Action::ClickThrough, true);
+            ui.menu_button(t("Language"), |ui| {
+                item(ui, &check(lang == Lang::En, "English"), Action::SetLanguage(Lang::En), true);
+                item(ui, &check(lang == Lang::Es, "Español"), Action::SetLanguage(Lang::Es), true);
+            });
+            ui.menu_button(t("Visible"), |ui| {
                 let now = (self.settings.see_through * 100.0).round() as u8;
                 for percent in SEE_THROUGH_STEPS {
                     item(ui, &check(now == *percent, &format!("{percent} %")), Action::SeeThrough(*percent), true);
@@ -991,6 +1046,7 @@ impl OpenRefApp {
 
     /// Offers back a board that was not saved when OpenRef last stopped.
     fn recovery_dialog(&mut self, ctx: &egui::Context) {
+        let lang = self.settings.lang;
         let Some(orphan) = self.offer.clone() else { return };
         if self.asking.is_some() {
             return;
@@ -1000,18 +1056,18 @@ impl OpenRefApp {
             .as_ref()
             .and_then(|p| p.file_stem())
             .map(|s| format!("“{}”", s.to_string_lossy()))
-            .unwrap_or_else(|| "A board".into());
+            .unwrap_or_else(|| tr(lang, "A board").into());
         let mut answer = None;
         egui::Modal::new(egui::Id::unique("recover")).show(ctx, |ui| {
             ui.set_width(340.0);
-            ui.heading("Recover the board?");
-            ui.label(format!("{name} had changes that were not saved when OpenRef last stopped."));
+            ui.heading(tr(lang, "Recover the board?"));
+            ui.label(tf(lang, "{name} had changes that were not saved when OpenRef last stopped.", &[("name", &name)]));
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                if ui.button("Recover").clicked() {
+                if ui.button(tr(lang, "Recover")).clicked() {
                     answer = Some(true);
                 }
-                if ui.button("Discard").clicked() {
+                if ui.button(tr(lang, "Discard")).clicked() {
                     answer = Some(false);
                 }
             });
@@ -1023,9 +1079,9 @@ impl OpenRefApp {
                         self.editor.replace(board.scene, board.images, board.view);
                         self.editor.dirty = true;
                         self.path = orphan.original.clone();
-                        self.notify(ctx, "Board recovered: save it to keep it");
+                        self.say(ctx, "Board recovered: save it to keep it");
                     }
-                    Err(error) => self.notify(ctx, format!("Could not recover the board: {error}")),
+                    Err(error) => self.say_with(ctx, "Could not recover the board: {error}", &[("error", &error)]),
                 }
                 orphan.discard();
                 self.offer = None;
@@ -1039,21 +1095,22 @@ impl OpenRefApp {
     }
 
     fn ask_dialog(&mut self, ctx: &egui::Context, frame: &eframe::Frame) {
+        let lang = self.settings.lang;
         let Some(then) = self.asking.clone() else { return };
         let mut answer: Option<Option<bool>> = None; // Some(Some(save?)) or Some(None) = cancel
         let response = egui::Modal::new(egui::Id::unique("unsaved")).show(ctx, |ui| {
             ui.set_width(320.0);
-            ui.heading("Save the changes?");
-            ui.label(format!("“{}” has changes that are not saved.", self.board_name()));
+            ui.heading(tr(lang, "Save the changes?"));
+            ui.label(tf(lang, "“{name}” has changes that are not saved.", &[("name", &self.board_name())]));
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                if ui.button("Save").clicked() {
+                if ui.button(tr(lang, "Save")).clicked() {
                     answer = Some(Some(true));
                 }
-                if ui.button("Don't save").clicked() {
+                if ui.button(tr(lang, "Don't save")).clicked() {
                     answer = Some(Some(false));
                 }
-                if ui.button("Cancel").clicked() {
+                if ui.button(tr(lang, "Cancel")).clicked() {
                     answer = Some(None);
                 }
             });
@@ -1117,8 +1174,8 @@ impl eframe::App for OpenRefApp {
             if let Ok(result) = rx.try_recv() {
                 let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
                 match result {
-                    Ok(()) => self.notify(ctx, format!("Exported {name}")),
-                    Err(error) => self.notify(ctx, format!("Could not export {name}: {error}")),
+                    Ok(()) => self.say_with(ctx, "Exported {name}", &[("name", &name)]),
+                    Err(error) => self.say_with(ctx, "Could not export {name}: {error}", &[("name", &name), ("error", &error)]),
                 }
                 self.exporting = None;
             }
@@ -1140,7 +1197,7 @@ impl eframe::App for OpenRefApp {
             crate::window::frameless_chrome(ui, &title);
         }
         if self.click_through.is_some() {
-            crate::window::click_through_badge(ui);
+            crate::window::click_through_badge(ui, self.settings.lang);
         }
         if self.editor.locked {
             if let Some(picked) = crate::window::color_picker(ui) {
@@ -1148,7 +1205,7 @@ impl eframe::App for OpenRefApp {
                     let hex = platform::describe(picked.rgb).hex;
                     ui.ctx().copy_text(hex.clone());
                     let ctx = ui.ctx().clone();
-                    self.notify(&ctx, format!("{hex} copied"));
+                    self.say_with(&ctx, "{hex} copied", &[("hex", &hex)]);
                     self.picking = false;
                 }
             }

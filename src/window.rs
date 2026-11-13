@@ -91,9 +91,9 @@ pub fn frameless_chrome(ui: &mut Ui, title: &str) {
 }
 
 /// A reminder in a corner while the window lets the mouse through.
-pub fn click_through_badge(ui: &Ui) {
+pub fn click_through_badge(ui: &Ui, lang: crate::text::Lang) {
     let rect = ui.max_rect();
-    let text = "Click-through · Ctrl+Alt+T to get the mouse back";
+    let text = crate::text::tr(lang, "Click-through · Ctrl+Alt+T to get the mouse back");
     let galley = ui.painter().layout_no_wrap(text.into(), FontId::proportional(12.0), Color32::WHITE);
     let at = rect.right_top() + vec2(-galley.size().x - 16.0, 10.0);
     let back = Rect::from_min_size(at, galley.size()).expand2(vec2(8.0, 4.0));
