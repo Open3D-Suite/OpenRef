@@ -109,6 +109,8 @@ const SPANISH: &[(&str, &str)] = &[
     ("Backspace", "Retroceso"),
     ("Up", "Arriba"),
     ("Down", "Abajo"),
+    ("PgUp", "RePág"),
+    ("PgDn", "AvPág"),
     // Dialogs.
     ("Add images", "Añadir imágenes"),
     ("Images", "Imágenes"),

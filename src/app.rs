@@ -129,8 +129,8 @@ const SHORTCUTS: &[(Modifiers, Key, Action)] = &[
     (Modifiers::CTRL, Key::A, Action::SelectAll),
     (Modifiers::CTRL, Key::D, Action::Duplicate),
     (Modifiers::CTRL, Key::P, Action::Pack),
-    (Modifiers::CTRL, Key::CloseBracket, Action::BringToFront),
-    (Modifiers::CTRL, Key::OpenBracket, Action::SendToBack),
+    (Modifiers::CTRL, Key::PageUp, Action::BringToFront),
+    (Modifiers::CTRL, Key::PageDown, Action::SendToBack),
     (Modifiers::CTRL, Key::Space, Action::FocusAll),
     (Modifiers::ALT, Key::G, Action::Grayscale),
     (Modifiers::NONE, Key::Delete, Action::Delete),
@@ -165,6 +165,8 @@ fn shortcut_text(lang: Lang, action: Action) -> String {
                 Key::Backspace => t("Backspace"),
                 Key::ArrowUp => t("Up"),
                 Key::ArrowDown => t("Down"),
+                Key::PageUp => t("PgUp"),
+                Key::PageDown => t("PgDn"),
                 _ => k.name(),
             };
             parts.push(key);
