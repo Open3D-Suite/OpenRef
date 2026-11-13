@@ -4,7 +4,7 @@
 //! World units are image pixels at scale 1. An item's local frame has its origin at the item's
 //! centre; a local point goes to the world by flipping, scaling, rotating and moving (in that order).
 
-use egui::{pos2, vec2, Pos2, Rect, Vec2};
+use egui::{pos2, vec2, Color32, Pos2, Rect, Vec2};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
@@ -43,9 +43,43 @@ pub enum ItemKind {
         #[serde(default)]
         grayscale: bool,
     },
+    Note {
+        text: String,
+        /// Letter size in world units (at scale 1).
+        font_size: f32,
+        color: Color32,
+        fill: Color32,
+        /// The note's box, measured from its text (fonts live in the window, so the window
+        /// measures and stores it here; the geometry only reads it).
+        size: Vec2,
+    },
 }
 
+pub const NOTE_FONT_SIZE: f32 = 24.0;
+pub const NOTE_COLOR: Color32 = Color32::from_gray(235);
+pub const NOTE_FILL: Color32 = Color32::from_rgba_premultiplied(0, 0, 0, 150);
+
+/// Space around a note's text, as a share of its letter size.
+pub const NOTE_PADDING: f32 = 0.5;
+
 impl Item {
+    pub fn note(id: ItemId, text: String, center: Pos2, size: Vec2) -> Self {
+        Self {
+            id,
+            kind: ItemKind::Note { text, font_size: NOTE_FONT_SIZE, color: NOTE_COLOR, fill: NOTE_FILL, size },
+            center,
+            scale: 1.0,
+            rotation: 0.0,
+            flip_x: false,
+            flip_y: false,
+            opacity: 1.0,
+        }
+    }
+
+    pub fn is_image(&self) -> bool {
+        matches!(self.kind, ItemKind::Image { .. })
+    }
+
     pub fn image(id: ItemId, image: ImageKey, width: u32, height: u32, center: Pos2) -> Self {
         Self {
             id,
@@ -67,6 +101,7 @@ impl Item {
     pub fn local_size(&self) -> Vec2 {
         match &self.kind {
             ItemKind::Image { crop, .. } => crop.size(),
+            ItemKind::Note { size, .. } => size.max(Vec2::splat(1.0)),
         }
     }
 
@@ -78,6 +113,15 @@ impl Item {
     pub fn image_key(&self) -> Option<ImageKey> {
         match &self.kind {
             ItemKind::Image { image, .. } => Some(*image),
+            ItemKind::Note { .. } => None,
+        }
+    }
+
+    /// Image pixel under a world point (in the whole image, not only the cropped part).
+    pub fn image_pixel(&self, world: Pos2) -> Option<Pos2> {
+        match &self.kind {
+            ItemKind::Image { crop, .. } => Some(crop.center() + self.to_local(world)),
+            ItemKind::Note { .. } => None,
         }
     }
 
@@ -212,12 +256,14 @@ impl Scene {
     /// Mirrors items left-right (or top-bottom) about a vertical (horizontal) line through `pivot`.
     pub fn flip_about(&mut self, ids: &BTreeSet<ItemId>, pivot: Pos2, horizontal: bool) {
         self.each(ids, |item| {
+            // Notes move to the mirrored place but their text stays readable.
+            let mirror = item.is_image();
             if horizontal {
                 item.center.x = 2.0 * pivot.x - item.center.x;
-                item.flip_x = !item.flip_x;
+                item.flip_x ^= mirror;
             } else {
                 item.center.y = 2.0 * pivot.y - item.center.y;
-                item.flip_y = !item.flip_y;
+                item.flip_y ^= mirror;
             }
             item.rotation = wrap_angle(-item.rotation);
         });
@@ -235,9 +281,62 @@ impl Scene {
 
     pub fn set_grayscale(&mut self, ids: &BTreeSet<ItemId>, on: bool) {
         self.each(ids, |item| {
-            let ItemKind::Image { grayscale, .. } = &mut item.kind;
-            *grayscale = on;
+            if let ItemKind::Image { grayscale, .. } = &mut item.kind {
+                *grayscale = on;
+            }
         });
+    }
+
+    /// Shows another part of an image, keeping the image itself where it is on the board.
+    /// `crop` is in image pixels and is kept inside `image_size`, at least one pixel big.
+    pub fn set_crop(&mut self, id: ItemId, crop: Rect, image_size: Vec2) {
+        let Some(item) = self.items.iter_mut().find(|item| item.id == id) else { return };
+        let ItemKind::Image { crop: current, .. } = &item.kind else { return };
+        let current = *current;
+        let full = Rect::from_min_size(Pos2::ZERO, image_size);
+        let mut crop = crop.intersect(full);
+        if crop.width() < 1.0 {
+            crop.max.x = (crop.min.x + 1.0).min(full.max.x);
+            crop.min.x = crop.max.x - 1.0;
+        }
+        if crop.height() < 1.0 {
+            crop.max.y = (crop.min.y + 1.0).min(full.max.y);
+            crop.min.y = crop.max.y - 1.0;
+        }
+        let shift = crop.center() - current.center();
+        item.center = item.to_world(shift);
+        if let ItemKind::Image { crop: slot, .. } = &mut item.kind {
+            *slot = crop;
+        }
+    }
+
+    /// Shows whole images again.
+    pub fn reset_crop(&mut self, ids: &BTreeSet<ItemId>, image_size: impl Fn(ImageKey) -> Option<Vec2>) {
+        let crops: Vec<(ItemId, Vec2)> = self
+            .items
+            .iter()
+            .filter(|item| ids.contains(&item.id))
+            .filter_map(|item| Some((item.id, image_size(item.image_key()?)?)))
+            .collect();
+        for (id, size) in crops {
+            self.set_crop(id, Rect::from_min_size(Pos2::ZERO, size), size);
+        }
+    }
+
+    /// Changes a note's text and the box measured for it.
+    pub fn set_note_text(&mut self, id: ItemId, new_text: String, new_size: Vec2) {
+        let Some(item) = self.items.iter_mut().find(|item| item.id == id) else { return };
+        if !matches!(item.kind, ItemKind::Note { .. }) {
+            return;
+        }
+        // Grow and shrink from the top-left corner, like typing does.
+        let corner = item.to_world(-item.local_size() / 2.0);
+        if let ItemKind::Note { text, size, .. } = &mut item.kind {
+            *text = new_text;
+            *size = new_size;
+        }
+        let new_half = item.local_size() / 2.0;
+        item.center = corner + rotate(new_half * item.scale, item.rotation);
     }
 
     pub fn set_opacity(&mut self, ids: &BTreeSet<ItemId>, opacity: f32) {
@@ -491,6 +590,66 @@ mod tests {
     fn packing_one_row_when_the_window_is_very_wide() {
         let places = shelf_pack(&[vec2(10.0, 10.0), vec2(10.0, 10.0), vec2(10.0, 10.0)], 100.0, 0.0);
         assert!(places.iter().all(|p| p.y == 0.0));
+    }
+
+    #[test]
+    fn cropping_keeps_the_image_where_it_was() {
+        let mut scene = Scene::default();
+        let mut item = Item::image(1, 1, 400, 300, pos2(50.0, -20.0));
+        item.scale = 0.75;
+        item.rotation = 0.6;
+        item.flip_x = true;
+        scene.items.push(item.clone());
+        // Where the image's pixel (300, 120) is on the board, before and after cropping around it.
+        let pixel = pos2(300.0, 120.0);
+        let before = item.to_world(pixel - item.image_pixel(item.center).unwrap());
+        scene.set_crop(1, Rect::from_min_max(pos2(250.0, 100.0), pos2(390.0, 200.0)), vec2(400.0, 300.0));
+        let after_item = &scene.items[0];
+        assert_eq!(after_item.local_size(), vec2(140.0, 100.0));
+        let after = after_item.to_world(pixel - after_item.image_pixel(after_item.center).unwrap());
+        assert!(close(before, after), "{before:?} became {after:?}");
+        assert!(close(after_item.image_pixel(after).unwrap(), pixel));
+    }
+
+    #[test]
+    fn crops_stay_inside_the_image() {
+        let mut scene = Scene::default();
+        scene.items.push(Item::image(1, 1, 100, 100, Pos2::ZERO));
+        scene.set_crop(1, Rect::from_min_max(pos2(-50.0, 90.0), pos2(40.0, 300.0)), vec2(100.0, 100.0));
+        assert_eq!(scene.items[0].local_size(), vec2(40.0, 10.0));
+        scene.set_crop(1, Rect::from_min_max(pos2(99.9, 0.0), pos2(99.9, 50.0)), vec2(100.0, 100.0));
+        assert_eq!(scene.items[0].local_size().x, 1.0);
+        scene.reset_crop(&ids(&[1]), |_| Some(vec2(100.0, 100.0)));
+        assert_eq!(scene.items[0].local_size(), vec2(100.0, 100.0));
+    }
+
+    #[test]
+    fn a_growing_note_keeps_its_top_left_corner() {
+        let mut scene = Scene::default();
+        let mut note = Item::note(1, "hi".into(), pos2(100.0, 100.0), vec2(40.0, 30.0));
+        note.rotation = 0.3;
+        note.scale = 2.0;
+        scene.items.push(note);
+        let corner = scene.items[0].corners()[0];
+        scene.set_note_text(1, "hello there".into(), vec2(150.0, 60.0));
+        assert!(close(scene.items[0].corners()[0], corner));
+        assert_eq!(scene.items[0].local_size(), vec2(150.0, 60.0));
+    }
+
+    #[test]
+    fn flipping_a_note_moves_it_but_keeps_it_readable() {
+        let mut scene = Scene::default();
+        scene.items.push(Item::note(1, "x".into(), pos2(30.0, 0.0), vec2(10.0, 10.0)));
+        scene.flip_about(&ids(&[1]), Pos2::ZERO, true);
+        assert!(close(scene.items[0].center, pos2(-30.0, 0.0)));
+        assert!(!scene.items[0].flip_x);
+    }
+
+    #[test]
+    fn notes_survive_json() {
+        let note = Item::note(4, "line one\nline two".into(), pos2(1.0, 2.0), vec2(80.0, 50.0));
+        let back: Item = serde_json::from_str(&serde_json::to_string(&note).unwrap()).unwrap();
+        assert_eq!(back, note);
     }
 
     #[test]

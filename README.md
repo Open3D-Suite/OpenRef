@@ -17,6 +17,9 @@ suite of open-source tools for 3D work.
 - Select (click, Ctrl/Shift+click, drag a box), move, scale from a corner, rotate from just outside
   a corner, flip, grayscale, opacity, reset, duplicate, delete, stacking order, and pack to the
   window's shape (Ctrl+P). Undo and redo everything.
+- Crop (C or double-click an image): drag edges and corners, or drag inside to slide the picture;
+  the original stays whole, Ctrl+Shift+C brings it back.
+- Text notes (Ctrl+N, or paste text); double-click or Enter to change one.
 - Boards saved as one `.oref` file with the original images inside; a question before unsaved
   changes are lost.
 - Copy an image back to the clipboard as it looks on the board.
@@ -25,7 +28,7 @@ suite of open-source tools for 3D work.
 
 ## Still to come for 0.1.0
 
-- Crop, text notes and a colour picker.
+- A colour picker; note colours and sizes.
 - A window without a frame, see-through, or transparent to the mouse so you can trace over it.
 - Arrange by name, align, distribute and match sizes.
 - Export images or the whole board; autosave and recovery; a Spanish interface.

@@ -55,6 +55,10 @@ pub enum Action {
     FocusAll,
     Opacity(u8),
     AlwaysOnTop,
+    AddNote,
+    EditNote,
+    Crop,
+    ResetCrop,
 }
 
 /// Every keyboard shortcut. Longer ones first, so Ctrl+Shift+Z is not read as Ctrl+Z.
@@ -63,9 +67,11 @@ const SHORTCUTS: &[(Modifiers, Key, Action)] = &[
     (Modifiers::CTRL.plus(Modifiers::SHIFT), Key::Z, Action::Redo),
     (Modifiers::CTRL.plus(Modifiers::SHIFT), Key::T, Action::ResetTransform),
     (Modifiers::CTRL.plus(Modifiers::SHIFT), Key::A, Action::AlwaysOnTop),
+    (Modifiers::CTRL.plus(Modifiers::SHIFT), Key::N, Action::New),
+    (Modifiers::CTRL.plus(Modifiers::SHIFT), Key::C, Action::ResetCrop),
     (Modifiers::ALT.plus(Modifiers::SHIFT), Key::H, Action::FlipHorizontal),
     (Modifiers::ALT.plus(Modifiers::SHIFT), Key::V, Action::FlipVertical),
-    (Modifiers::CTRL, Key::N, Action::New),
+    (Modifiers::CTRL, Key::N, Action::AddNote),
     (Modifiers::CTRL, Key::O, Action::Open),
     (Modifiers::CTRL, Key::S, Action::Save),
     (Modifiers::CTRL, Key::I, Action::ImportImages),
@@ -84,6 +90,8 @@ const SHORTCUTS: &[(Modifiers, Key, Action)] = &[
     (Modifiers::NONE, Key::Backspace, Action::Delete),
     (Modifiers::NONE, Key::Escape, Action::SelectNone),
     (Modifiers::NONE, Key::Space, Action::Focus),
+    (Modifiers::NONE, Key::Enter, Action::EditNote),
+    (Modifiers::NONE, Key::C, Action::Crop),
 ];
 
 fn shortcut_text(action: Action) -> String {
@@ -237,11 +245,36 @@ impl OpenRefApp {
             Action::Grayscale => {
                 let targets = editor.targets();
                 // Turn it on unless every target already has it.
-                let all_gray = editor.scene.items.iter().filter(|i| targets.contains(&i.id)).all(|i| {
-                    let ItemKind::Image { grayscale, .. } = &i.kind;
-                    *grayscale
-                });
+                let all_gray = editor
+                    .scene
+                    .items
+                    .iter()
+                    .filter(|i| targets.contains(&i.id))
+                    .all(|i| !matches!(i.kind, ItemKind::Image { grayscale: false, .. }));
                 editor.change(|scene, _| scene.set_grayscale(&targets, !all_gray));
+            }
+            Action::AddNote => {
+                let at = editor.drop_point(pointer);
+                editor.add_note(ctx, String::new(), at);
+            }
+            Action::EditNote => editor.edit_selected_note(),
+            Action::Crop => {
+                if editor.single().is_some_and(|i| i.is_image()) {
+                    editor.start_crop();
+                } else {
+                    self.notify(ctx, "Select one image to crop");
+                }
+            }
+            Action::ResetCrop => {
+                let targets = editor.targets();
+                let sizes: std::collections::HashMap<_, _> = editor
+                    .scene
+                    .items
+                    .iter()
+                    .filter_map(|i| i.image_key())
+                    .filter_map(|k| Some((k, editor.image_size(k)?)))
+                    .collect();
+                editor.change(|scene, _| scene.reset_crop(&targets, |k| sizes.get(&k).copied()));
             }
             Action::BringToFront => editor.change(|scene, selection| scene.restack(selection, true)),
             Action::SendToBack => editor.change(|scene, selection| scene.restack(selection, false)),
@@ -336,14 +369,20 @@ impl OpenRefApp {
             return;
         }
         if let Ok(text) = clipboard.get_text() {
-            let text = text.trim().trim_matches('"');
-            let path = PathBuf::from(text);
+            let trimmed = text.trim().trim_matches('"');
+            let path = PathBuf::from(trimmed);
             if path.is_file() {
                 self.import_paths(ctx, &[path], at);
                 return;
             }
+            if !trimmed.is_empty() {
+                // Any other text becomes a note.
+                let text = text.trim_end().replace("\r\n", "\n");
+                self.editor.add_note(ctx, text, at);
+                return;
+            }
         }
-        self.notify(ctx, "There is no image on the clipboard");
+        self.notify(ctx, "There is nothing to paste");
     }
 
     /// Copies the selected image (as seen: cropped, flipped, grayscale) to the clipboard.
@@ -351,10 +390,17 @@ impl OpenRefApp {
         let editor = &self.editor;
         let mut chosen = editor.scene.items.iter().filter(|i| editor.selection.contains(&i.id));
         let (Some(item), None) = (chosen.next(), chosen.next()) else {
-            self.notify(ctx, "Select one image to copy");
+            self.notify(ctx, "Select one image or note to copy");
             return;
         };
-        let ItemKind::Image { image, crop, grayscale } = &item.kind;
+        let ItemKind::Image { image, crop, grayscale } = &item.kind else {
+            if let ItemKind::Note { text, .. } = &item.kind {
+                let text = text.clone();
+                ctx.copy_text(text);
+                self.notify(ctx, "Note copied");
+            }
+            return;
+        };
         let Some(source) = editor.images.source(*image) else { return };
         let result = images::decode_full(&source.bytes, *grayscale).map(|full| {
             let r = crop.intersect(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(full.width() as f32, full.height() as f32)));
@@ -471,8 +517,37 @@ impl OpenRefApp {
     }
 
     fn handle_keys(&mut self, ctx: &egui::Context, frame: &eframe::Frame) {
-        if ctx.egui_wants_keyboard_input() || self.asking.is_some() {
+        if self.asking.is_some() {
             return;
+        }
+        if ctx.egui_wants_keyboard_input() {
+            // Typing in a note: Ctrl+C / X / V come as keys (see `run`), so hand them to the text box.
+            let clipboard_text = self.clipboard.as_mut().and_then(|c| c.get_text().ok());
+            ctx.input_mut(|input| {
+                if input.consume_shortcut(&KeyboardShortcut::new(Modifiers::CTRL, Key::C)) {
+                    input.events.push(egui::Event::Copy);
+                }
+                if input.consume_shortcut(&KeyboardShortcut::new(Modifiers::CTRL, Key::X)) {
+                    input.events.push(egui::Event::Cut);
+                }
+                if input.consume_shortcut(&KeyboardShortcut::new(Modifiers::CTRL, Key::V)) {
+                    if let Some(text) = clipboard_text {
+                        input.events.push(egui::Event::Paste(text.replace("\r\n", "\n")));
+                    }
+                }
+            });
+            return;
+        }
+        if self.editor.is_cropping() {
+            let done = ctx.input_mut(|input| {
+                [Key::Enter, Key::Escape, Key::C]
+                    .into_iter()
+                    .any(|key| input.consume_shortcut(&KeyboardShortcut::new(Modifiers::NONE, key)))
+            });
+            if done {
+                self.editor.finish_crop();
+                return;
+            }
         }
         let mut actions = Vec::new();
         ctx.input_mut(|input| {
@@ -519,9 +594,15 @@ impl OpenRefApp {
                 ui.close();
             }
         };
+        let single = self.editor.single().map(|i| i.is_image());
         item(ui, "Paste", Action::Paste, true);
         item(ui, "Add images…", Action::ImportImages, true);
-        item(ui, "Copy image", Action::Copy, self.editor.selection.len() == 1);
+        item(ui, "Add note", Action::AddNote, true);
+        item(ui, "Copy", Action::Copy, single.is_some());
+        ui.separator();
+        item(ui, "Crop", Action::Crop, single == Some(true));
+        item(ui, "Reset crop", Action::ResetCrop, has_items);
+        item(ui, "Edit note", Action::EditNote, single == Some(false));
         ui.separator();
         item(ui, "Undo", Action::Undo, self.editor.history.can_undo());
         item(ui, "Redo", Action::Redo, self.editor.history.can_redo());
