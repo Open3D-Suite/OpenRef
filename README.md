@@ -23,13 +23,15 @@ suite of open-source tools for 3D work.
 - Boards saved as one `.oref` file with the original images inside; a question before unsaved
   changes are lost.
 - Copy an image back to the clipboard as it looks on the board.
-- Always on top (Ctrl+Shift+A).
+- A window that stays out of the way: always on top (Ctrl+Shift+A), no frame (Ctrl+Shift+F),
+  see-through (Ctrl+Shift+↓ / ↑), transparent background (Ctrl+Alt+B) and click-through
+  (Ctrl+Alt+T, pressed anywhere, to turn it on and off) to trace over a reference.
+- Colour picker: hold S and click, anywhere on the screen; the HEX goes to the clipboard.
+- Note looks and text sizes.
 - Everything in the right-click menu, with its shortcut.
 
 ## Still to come for 0.1.0
 
-- A colour picker; note colours and sizes.
-- A window without a frame, see-through, or transparent to the mouse so you can trace over it.
 - Arrange by name, align, distribute and match sizes.
 - Export images or the whole board; autosave and recovery; a Spanish interface.
 

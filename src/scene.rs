@@ -323,6 +323,19 @@ impl Scene {
         }
     }
 
+    /// Changes a note's letter size and, when given, its text and background colours. The box
+    /// has to be measured again for the new size (see [`Self::set_note_text`]).
+    pub fn set_note_style(&mut self, id: ItemId, new_font_size: f32, colors: Option<(Color32, Color32)>) {
+        let Some(item) = self.items.iter_mut().find(|item| item.id == id) else { return };
+        if let ItemKind::Note { font_size, color, fill, .. } = &mut item.kind {
+            *font_size = new_font_size.max(1.0);
+            if let Some((text, background)) = colors {
+                *color = text;
+                *fill = background;
+            }
+        }
+    }
+
     /// Changes a note's text and the box measured for it.
     pub fn set_note_text(&mut self, id: ItemId, new_text: String, new_size: Vec2) {
         let Some(item) = self.items.iter_mut().find(|item| item.id == id) else { return };

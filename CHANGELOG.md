@@ -27,5 +27,15 @@ What changed for users in each version of OpenRef, newest first.
   original images go inside, so a board can be moved or shared on its own. OpenRef asks before
   closing or replacing a board with unsaved changes.
 - **Copy an image back out** (Ctrl+C), cropped, flipped and grayscale as it is on the board.
-- **Always on top** (Ctrl+Shift+A), remembered for next time.
-- Everything is also in the right-click menu, with its shortcut.
+- **A window that stays out of the way**, all remembered for next time:
+  - always on top (Ctrl+Shift+A);
+  - no frame (Ctrl+Shift+F): a bar appears when the mouse nears the top to move, maximise, minimise or
+    close the window, and the edges still resize it;
+  - see-through: Ctrl+Shift+↓ / ↑ lets the desktop show through, from 100 % down to 25 %;
+  - transparent background (Ctrl+Alt+B): only the images float over what is behind;
+  - click-through (Ctrl+Alt+T): the mouse goes through OpenRef to the program behind, to trace over a
+    reference; Ctrl+Alt+T, pressed anywhere, brings it back.
+- **Colour picker.** Hold S and click to copy the colour under the mouse as HEX (RGB and HSV are shown
+  too); keep the button down and leave the window to pick from any other program. Also in the menu.
+- **Note looks**: dark, light, yellow or no background, and four text sizes.
+- Everything is also in the right-click menu, with its shortcut, grouped so it fits small windows.

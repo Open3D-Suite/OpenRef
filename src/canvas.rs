@@ -157,6 +157,12 @@ pub struct Editor {
     editing: Option<NoteEdit>,
     /// Fit everything in view once the board area is known.
     fit_pending: bool,
+    /// A tool (the colour picker) has the mouse: no selecting or moving.
+    pub locked: bool,
+    /// How much of everything shows (1 = opaque), for a see-through window.
+    pub see_through: f32,
+    /// No board colour behind the items.
+    pub transparent_background: bool,
 }
 
 /// The box a note needs for its text, in world units at scale 1.
@@ -180,6 +186,9 @@ impl Editor {
             cropping: None,
             editing: None,
             fit_pending: false,
+            locked: false,
+            see_through: 1.0,
+            transparent_background: false,
         }
     }
 
@@ -453,7 +462,9 @@ impl Editor {
             ui.ctx().set_cursor_icon(CursorIcon::Grabbing);
         }
 
-        if self.cropping.is_some() {
+        if self.locked {
+            // The tool draws and reads the mouse itself.
+        } else if self.cropping.is_some() {
             self.crop_gestures(ui, &response, pointer);
         } else {
             // A click on the board ends typing (the second click of a double-click starts it).
@@ -742,7 +753,8 @@ impl Editor {
 
     fn paint(&mut self, ui: &Ui, rect: Rect, pointer: Option<Pos2>) {
         let painter = ui.painter_at(rect);
-        painter.rect_filled(rect, 0.0, BACKGROUND);
+        let background = if self.transparent_background { Color32::TRANSPARENT } else { BACKGROUND.gamma_multiply(self.see_through) };
+        painter.rect_filled(rect, 0.0, background);
         let ppp = ui.ctx().pixels_per_point();
         let camera = self.camera;
         let screen = |p: Pos2| camera.to_screen(rect, p);
@@ -755,7 +767,7 @@ impl Editor {
             if !bounds.intersects(rect) && cropping != Some(item.id) {
                 continue;
             }
-            let alpha = item.opacity.clamp(0.0, 1.0);
+            let alpha = item.opacity.clamp(0.0, 1.0) * self.see_through;
             match &item.kind {
                 ItemKind::Image { image, crop, grayscale } => {
                     let (source_w, source_h) = match self.images.source(*image) {

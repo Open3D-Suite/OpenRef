@@ -215,7 +215,7 @@ impl ImageStore {
                         .enumerate()
                         .map(|(n, level)| {
                             let name = format!("image-{key}-{}-{n}", if gray { "gray" } else { "color" });
-                            self.ctx.load_texture(name, level, TextureOptions::LINEAR)
+                            self.ctx.load_texture(name, level, TextureOptions::LINEAR.with_mipmap_mode(Some(egui::TextureFilter::Linear)))
                         })
                         .collect(),
                 ),

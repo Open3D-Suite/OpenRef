@@ -5,8 +5,9 @@
 use crate::board_file::{self, EXTENSION};
 use crate::canvas::{Editor, BACKGROUND};
 use crate::images::{self, ImageStore, Source};
+use crate::platform;
 use crate::scene::{ItemKind, Scene};
-use eframe::egui::{self, Key, KeyboardShortcut, Modifiers};
+use eframe::egui::{self, Color32, Key, KeyboardShortcut, Modifiers, Vec2};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -21,9 +22,14 @@ pub fn run(files: Vec<PathBuf>) -> eframe::Result<()> {
             .with_title("OpenRef")
             .with_inner_size([1000.0, 700.0])
             .with_min_inner_size([240.0, 160.0])
-            .with_drag_and_drop(true),
+            .with_drag_and_drop(true)
+            // Made see-through-capable from the start: Windows only allows it when the window is created.
+            .with_transparent(true),
         // Ctrl+C / Ctrl+V reach the board as keys: it reads images and files, not only text.
         clipboard_shortcuts: false,
+        // OpenGL: on Windows it is the renderer whose window can really be see-through (with wgpu
+        // the transparent parts were blended with white, measured on 2026-11-13).
+        renderer: eframe::Renderer::Glow,
         ..Default::default()
     };
     eframe::run_native("OpenRef", options, Box::new(move |cc| Ok(Box::new(OpenRefApp::new(cc, files)))))
@@ -59,10 +65,37 @@ pub enum Action {
     EditNote,
     Crop,
     ResetCrop,
+    Frameless,
+    ClickThrough,
+    TransparentBackground,
+    /// How much of the window shows, in percent.
+    SeeThrough(u8),
+    /// More (true) or less see-through, by steps.
+    Fade(bool),
+    PickColor,
+    /// A note's letter size, in world units.
+    NoteSize(u8),
+    /// One of [`NOTE_STYLES`].
+    NoteStyle(u8),
 }
+
+/// Note looks: name, text colour, background.
+const NOTE_STYLES: &[(&str, Color32, Color32)] = &[
+    ("Dark", crate::scene::NOTE_COLOR, crate::scene::NOTE_FILL),
+    ("Light", Color32::from_gray(25), Color32::from_rgb(240, 240, 240)),
+    ("Yellow", Color32::from_gray(25), Color32::from_rgb(255, 222, 89)),
+    ("No background", crate::scene::NOTE_COLOR, Color32::TRANSPARENT),
+];
+
+const SEE_THROUGH_STEPS: &[u8] = &[100, 85, 70, 55, 40, 25];
 
 /// Every keyboard shortcut. Longer ones first, so Ctrl+Shift+Z is not read as Ctrl+Z.
 const SHORTCUTS: &[(Modifiers, Key, Action)] = &[
+    (Modifiers::CTRL.plus(Modifiers::ALT), Key::T, Action::ClickThrough),
+    (Modifiers::CTRL.plus(Modifiers::ALT), Key::B, Action::TransparentBackground),
+    (Modifiers::CTRL.plus(Modifiers::SHIFT), Key::F, Action::Frameless),
+    (Modifiers::CTRL.plus(Modifiers::SHIFT), Key::ArrowDown, Action::Fade(true)),
+    (Modifiers::CTRL.plus(Modifiers::SHIFT), Key::ArrowUp, Action::Fade(false)),
     (Modifiers::CTRL.plus(Modifiers::SHIFT), Key::S, Action::SaveAs),
     (Modifiers::CTRL.plus(Modifiers::SHIFT), Key::Z, Action::Redo),
     (Modifiers::CTRL.plus(Modifiers::SHIFT), Key::T, Action::ResetTransform),
@@ -124,12 +157,22 @@ enum Then {
     Close,
 }
 
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(default)]
 struct Settings {
     always_on_top: bool,
     /// The folder of the last board or image opened or saved.
     folder: Option<PathBuf>,
+    frameless: bool,
+    /// How much of the window shows (1 = opaque).
+    see_through: f32,
+    transparent_background: bool,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self { always_on_top: false, folder: None, frameless: false, see_through: 1.0, transparent_background: false }
+    }
 }
 
 pub struct OpenRefApp {
@@ -147,22 +190,36 @@ pub struct OpenRefApp {
     clipboard: Option<arboard::Clipboard>,
     /// Files given on the command line, opened on the first frame.
     startup: Vec<PathBuf>,
+    /// The colour picker was started from the menu (it also works while S is held).
+    picking: bool,
+    /// While the window lets the mouse through: the system-wide shortcut that ends it.
+    click_through: Option<platform::GlobalShortcut>,
 }
 
 impl OpenRefApp {
     fn new(cc: &eframe::CreationContext<'_>, startup: Vec<PathBuf>) -> Self {
         let max_side = cc
-            .wgpu_render_state
+            .gl
             .as_ref()
-            .map(|rs| rs.device.limits().max_texture_dimension_2d)
+            .map(|gl| {
+                use eframe::glow::HasContext;
+                // SAFETY: a plain query on the context eframe just made current.
+                unsafe { gl.get_parameter_i32(eframe::glow::MAX_TEXTURE_SIZE) }.max(1024) as u32
+            })
             .unwrap_or(8192)
             .min(8192);
         let settings: Settings = cc.storage.and_then(|s| eframe::get_value(s, "settings")).unwrap_or_default();
         if settings.always_on_top {
             cc.egui_ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(egui::WindowLevel::AlwaysOnTop));
         }
+        if settings.frameless {
+            cc.egui_ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(false));
+        }
+        let mut editor = Editor::new(ImageStore::new(cc.egui_ctx.clone(), max_side));
+        editor.see_through = settings.see_through.clamp(0.1, 1.0);
+        editor.transparent_background = settings.transparent_background;
         Self {
-            editor: Editor::new(ImageStore::new(cc.egui_ctx.clone(), max_side)),
+            editor,
             path: None,
             settings,
             notice: None,
@@ -172,7 +229,66 @@ impl OpenRefApp {
             title: String::new(),
             clipboard: arboard::Clipboard::new().ok(),
             startup,
+            picking: false,
+            click_through: None,
         }
+    }
+
+    fn set_see_through(&mut self, ctx: &egui::Context, value: f32) {
+        let value = value.clamp(0.1, 1.0);
+        self.settings.see_through = value;
+        self.editor.see_through = value;
+        self.notify(ctx, format!("Window {:.0} % visible", value * 100.0));
+    }
+
+    fn set_click_through(&mut self, ctx: &egui::Context, on: bool) {
+        if on == self.click_through.is_some() {
+            return;
+        }
+        if on {
+            match platform::GlobalShortcut::ctrl_alt('T', ctx.clone()) {
+                Ok(shortcut) => {
+                    self.click_through = Some(shortcut);
+                    ctx.send_viewport_cmd(egui::ViewportCommand::MousePassthrough(true));
+                    self.notify(ctx, "The mouse now goes through OpenRef. Ctrl+Alt+T brings it back.");
+                }
+                Err(error) => self.notify(ctx, format!("Click-through is not available: {error}")),
+            }
+        } else {
+            self.click_through = None;
+            ctx.send_viewport_cmd(egui::ViewportCommand::MousePassthrough(false));
+            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+            self.notify(ctx, "OpenRef takes the mouse again");
+        }
+    }
+
+    /// Changes the selected notes' letter size and/or colours, keeping their top-left corners.
+    fn style_notes(&mut self, ctx: &egui::Context, font: Option<f32>, colors: Option<(Color32, Color32)>) {
+        let targets = self.editor.targets();
+        let changes: Vec<(u64, String, f32, Vec2)> = self
+            .editor
+            .scene
+            .items
+            .iter()
+            .filter(|i| targets.contains(&i.id))
+            .filter_map(|i| match &i.kind {
+                ItemKind::Note { text, font_size, .. } => {
+                    let size = font.unwrap_or(*font_size);
+                    Some((i.id, text.clone(), size, crate::canvas::measure_note(ctx, text, size)))
+                }
+                ItemKind::Image { .. } => None,
+            })
+            .collect();
+        if changes.is_empty() {
+            self.notify(ctx, "Select notes to change them");
+            return;
+        }
+        self.editor.change(|scene, _| {
+            for (id, text, size, box_size) in changes {
+                scene.set_note_style(id, size, colors);
+                scene.set_note_text(id, text, box_size);
+            }
+        });
     }
 
     fn notify(&mut self, ctx: &egui::Context, text: impl Into<String>) {
@@ -275,6 +391,40 @@ impl OpenRefApp {
                     .filter_map(|k| Some((k, editor.image_size(k)?)))
                     .collect();
                 editor.change(|scene, _| scene.reset_crop(&targets, |k| sizes.get(&k).copied()));
+            }
+            Action::Frameless => {
+                self.settings.frameless = !self.settings.frameless;
+                ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(!self.settings.frameless));
+                if self.settings.frameless {
+                    self.notify(ctx, "No frame: move the window from the bar at the top");
+                }
+            }
+            Action::ClickThrough => {
+                let on = self.click_through.is_none();
+                self.set_click_through(ctx, on);
+            }
+            Action::TransparentBackground => {
+                self.settings.transparent_background = !self.settings.transparent_background;
+                self.editor.transparent_background = self.settings.transparent_background;
+            }
+            Action::SeeThrough(percent) => self.set_see_through(ctx, percent as f32 / 100.0),
+            Action::Fade(more) => {
+                let now = (self.settings.see_through * 100.0).round() as u8;
+                let next = if more {
+                    SEE_THROUGH_STEPS.iter().copied().find(|s| *s < now).unwrap_or(*SEE_THROUGH_STEPS.last().unwrap())
+                } else {
+                    SEE_THROUGH_STEPS.iter().rev().copied().find(|s| *s > now).unwrap_or(100)
+                };
+                self.set_see_through(ctx, next as f32 / 100.0);
+            }
+            Action::PickColor => {
+                self.picking = true;
+                self.notify(ctx, "Click anywhere on the screen to copy its colour (drag out of the window)");
+            }
+            Action::NoteSize(size) => self.style_notes(ctx, Some(size as f32), None),
+            Action::NoteStyle(n) => {
+                let (_, text, fill) = NOTE_STYLES[n as usize % NOTE_STYLES.len()];
+                self.style_notes(ctx, None, Some((text, fill)));
             }
             Action::BringToFront => editor.change(|scene, selection| scene.restack(selection, true)),
             Action::SendToBack => editor.change(|scene, selection| scene.restack(selection, false)),
@@ -595,47 +745,79 @@ impl OpenRefApp {
             }
         };
         let single = self.editor.single().map(|i| i.is_image());
+        let has_notes = self
+            .editor
+            .scene
+            .items
+            .iter()
+            .any(|i| self.editor.selection.contains(&i.id) && !i.is_image());
+        // Short at the top level, the rest in submenus, so the menu fits small windows.
         item(ui, "Paste", Action::Paste, true);
+        item(ui, "Copy", Action::Copy, single.is_some());
         item(ui, "Add images…", Action::ImportImages, true);
         item(ui, "Add note", Action::AddNote, true);
-        item(ui, "Copy", Action::Copy, single.is_some());
-        ui.separator();
-        item(ui, "Crop", Action::Crop, single == Some(true));
-        item(ui, "Reset crop", Action::ResetCrop, has_items);
-        item(ui, "Edit note", Action::EditNote, single == Some(false));
         ui.separator();
         item(ui, "Undo", Action::Undo, self.editor.history.can_undo());
         item(ui, "Redo", Action::Redo, self.editor.history.can_redo());
-        ui.separator();
-        item(ui, "Select all", Action::SelectAll, has_items);
         item(ui, "Duplicate", Action::Duplicate, has_selection);
         item(ui, "Delete", Action::Delete, has_selection);
         ui.separator();
-        item(ui, "Flip horizontally", Action::FlipHorizontal, has_items);
-        item(ui, "Flip vertically", Action::FlipVertical, has_items);
-        item(ui, "Grayscale", Action::Grayscale, has_items);
-        item(ui, "Reset transform", Action::ResetTransform, has_items);
-        ui.menu_button("Opacity", |ui| {
-            for percent in [100u8, 75, 50, 25] {
-                item(ui, &format!("{percent} %"), Action::Opacity(percent), has_items);
-            }
+        ui.menu_button("Image", |ui| {
+            item(ui, "Crop", Action::Crop, single == Some(true));
+            item(ui, "Reset crop", Action::ResetCrop, has_items);
+            item(ui, "Flip horizontally", Action::FlipHorizontal, has_items);
+            item(ui, "Flip vertically", Action::FlipVertical, has_items);
+            item(ui, "Grayscale", Action::Grayscale, has_items);
+            item(ui, "Reset transform", Action::ResetTransform, has_items);
+            ui.menu_button("Opacity", |ui| {
+                for percent in [100u8, 75, 50, 25] {
+                    item(ui, &format!("{percent} %"), Action::Opacity(percent), has_items);
+                }
+            });
         });
-        ui.menu_button("Order", |ui| {
+        ui.add_enabled_ui(has_notes, |ui| {
+            ui.menu_button("Note", |ui| {
+                item(ui, "Edit note", Action::EditNote, single == Some(false));
+                ui.separator();
+                for (n, (name, _, _)) in NOTE_STYLES.iter().enumerate() {
+                    item(ui, name, Action::NoteStyle(n as u8), true);
+                }
+                ui.separator();
+                for (name, size) in [("Small text", 16u8), ("Medium text", 24), ("Large text", 40), ("Huge text", 72)] {
+                    item(ui, name, Action::NoteSize(size), true);
+                }
+            });
+        });
+        ui.menu_button("Arrange", |ui| {
+            item(ui, "Select all", Action::SelectAll, has_items);
+            item(ui, "Pack to window", Action::Pack, has_items);
             item(ui, "Bring to front", Action::BringToFront, has_selection);
             item(ui, "Send to back", Action::SendToBack, has_selection);
+            ui.separator();
+            item(ui, "Frame selection", Action::Focus, has_items);
+            item(ui, "Frame everything", Action::FocusAll, has_items);
         });
         ui.separator();
-        item(ui, "Pack to window", Action::Pack, has_items);
-        item(ui, "Frame selection", Action::Focus, has_items);
-        item(ui, "Frame everything", Action::FocusAll, has_items);
-        ui.separator();
-        item(ui, "New board", Action::New, true);
-        item(ui, "Open board…", Action::Open, true);
-        item(ui, "Save board", Action::Save, has_items);
-        item(ui, "Save board as…", Action::SaveAs, has_items);
-        ui.separator();
-        let on_top = if self.settings.always_on_top { "✔ Always on top" } else { "Always on top" };
-        item(ui, on_top, Action::AlwaysOnTop, true);
+        item(ui, "Pick a colour", Action::PickColor, true);
+        ui.menu_button("Board", |ui| {
+            item(ui, "New board", Action::New, true);
+            item(ui, "Open board…", Action::Open, true);
+            item(ui, "Save board", Action::Save, has_items);
+            item(ui, "Save board as…", Action::SaveAs, has_items);
+        });
+        ui.menu_button("Window", |ui| {
+            let check = |on: bool, label: &str| if on { format!("✔ {label}") } else { label.to_string() };
+            item(ui, &check(self.settings.always_on_top, "Always on top"), Action::AlwaysOnTop, true);
+            item(ui, &check(self.settings.frameless, "No frame"), Action::Frameless, true);
+            item(ui, &check(self.settings.transparent_background, "Transparent background"), Action::TransparentBackground, true);
+            item(ui, "Click-through", Action::ClickThrough, true);
+            ui.menu_button("Visible", |ui| {
+                let now = (self.settings.see_through * 100.0).round() as u8;
+                for percent in SEE_THROUGH_STEPS {
+                    item(ui, &check(now == *percent, &format!("{percent} %")), Action::SeeThrough(*percent), true);
+                }
+            });
+        });
         if let Some(action) = chosen {
             self.run_action(&ctx, frame, action);
         }
@@ -682,6 +864,17 @@ impl eframe::App for OpenRefApp {
     fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         self.editor.images.poll();
         self.handle_drops(ctx);
+
+        if self.click_through.as_ref().is_some_and(|s| s.take_pressed()) {
+            self.set_click_through(ctx, false);
+        }
+        // The colour picker: from the menu, or while S is held.
+        if self.picking && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
+            self.picking = false;
+        }
+        let holding_s = ctx.input(|i| i.key_down(Key::S) && i.modifiers.is_none()) && !ctx.egui_wants_keyboard_input();
+        self.editor.locked = (self.picking || holding_s) && self.asking.is_none();
+
         self.handle_keys(ctx, frame);
 
         if let Some(then) = self.pending.take() {
@@ -707,7 +900,27 @@ impl eframe::App for OpenRefApp {
 
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let response = self.editor.show(ui);
-        response.context_menu(|ui| self.menu(ui, frame));
+        if !self.editor.locked {
+            response.context_menu(|ui| self.menu(ui, frame));
+        }
+        if self.settings.frameless {
+            let title = self.title.clone();
+            crate::window::frameless_chrome(ui, &title);
+        }
+        if self.click_through.is_some() {
+            crate::window::click_through_badge(ui);
+        }
+        if self.editor.locked {
+            if let Some(picked) = crate::window::color_picker(ui) {
+                if ui.input(|i| i.pointer.primary_released()) {
+                    let hex = platform::describe(picked.rgb).hex;
+                    ui.ctx().copy_text(hex.clone());
+                    let ctx = ui.ctx().clone();
+                    self.notify(&ctx, format!("{hex} copied"));
+                    self.picking = false;
+                }
+            }
+        }
 
         // Files from the command line, once the board area is known.
         if !self.startup.is_empty() {
@@ -747,7 +960,9 @@ impl eframe::App for OpenRefApp {
     }
 
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
-        BACKGROUND.to_normalized_gamma_f32()
+        // The board paints its own background, so the window itself can be see-through.
+        let _ = BACKGROUND;
+        [0.0; 4]
     }
 }
 
