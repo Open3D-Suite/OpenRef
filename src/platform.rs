@@ -30,6 +30,29 @@ pub fn screen_pixel(_x: i32, _y: i32) -> Option<[u8; 3]> {
     None
 }
 
+/// Whether a process with this id is still running.
+#[cfg(windows)]
+pub fn process_alive(pid: u32) -> bool {
+    use windows_sys::Win32::Foundation::{CloseHandle, STILL_ACTIVE};
+    use windows_sys::Win32::System::Threading::{GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+    // SAFETY: the handle is checked and closed here.
+    unsafe {
+        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if handle.is_null() {
+            return false;
+        }
+        let mut code = 0u32;
+        let ok = GetExitCodeProcess(handle, &mut code) != 0;
+        CloseHandle(handle);
+        ok && code == STILL_ACTIVE as u32
+    }
+}
+
+#[cfg(not(windows))]
+pub fn process_alive(_pid: u32) -> bool {
+    true
+}
+
 /// A system-wide Ctrl+Alt+<key> that works while it is alive. Its own thread owns the
 /// registration (Windows wants the same thread to register, wait and unregister).
 pub struct GlobalShortcut {

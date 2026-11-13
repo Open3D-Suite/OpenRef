@@ -389,25 +389,118 @@ impl Scene {
     /// Lays the items out in rows that fill a rectangle of the given aspect (width / height),
     /// tallest first, with `gap` world units between them. The block keeps its top-left corner.
     pub fn pack(&mut self, ids: &BTreeSet<ItemId>, aspect: f32, gap: f32) {
-        let Some(start) = self.bounds_of(ids) else { return };
-        let mut order: Vec<(usize, Vec2)> = self
+        let mut order: Vec<(ItemId, f32)> = self
             .items
             .iter()
-            .enumerate()
-            .filter(|(_, item)| ids.contains(&item.id))
-            .map(|(index, item)| (index, item.bounds().size()))
+            .filter(|item| ids.contains(&item.id))
+            .map(|item| (item.id, item.bounds().height()))
             .collect();
-        let sizes: Vec<Vec2> = order.iter().map(|(_, size)| *size).collect();
-        order.sort_by(|a, b| b.1.y.total_cmp(&a.1.y).then(a.0.cmp(&b.0)));
-        let places = shelf_pack(&order.iter().map(|(_, size)| *size).collect::<Vec<_>>(), aspect, gap);
-        debug_assert_eq!(sizes.len(), places.len());
-        for ((index, size), place) in order.iter().zip(places) {
-            let item = &mut self.items[*index];
-            let target = start.min + place.to_vec2() + *size / 2.0;
-            let off = item.bounds().center() - item.center;
-            item.center = target - off;
+        // Tallest first; equal heights keep the drawing order (the sort is stable).
+        order.sort_by(|a, b| b.1.total_cmp(&a.1));
+        self.lay_out_in_order(&order.into_iter().map(|(id, _)| id).collect::<Vec<_>>(), aspect, gap);
+    }
+
+    /// Lays items out in rows in the given order (reading order: left to right, then down),
+    /// filling a block of the given aspect. The block keeps the items' top-left corner.
+    pub fn lay_out_in_order(&mut self, order: &[ItemId], aspect: f32, gap: f32) {
+        let ids: BTreeSet<ItemId> = order.iter().copied().collect();
+        let Some(start) = self.bounds_of(&ids) else { return };
+        let sizes: Vec<Vec2> = order.iter().filter_map(|id| self.get(*id)).map(|item| item.bounds().size()).collect();
+        let places = shelf_pack(&sizes, aspect, gap);
+        for ((id, size), place) in order.iter().zip(sizes).zip(places) {
+            if let Some(item) = self.items.iter_mut().find(|item| item.id == *id) {
+                let target = start.min + place.to_vec2() + size / 2.0;
+                let off = item.bounds().center() - item.center;
+                item.center = target - off;
+            }
         }
     }
+
+    /// Lines items up against the selection's edge or middle.
+    pub fn align(&mut self, ids: &BTreeSet<ItemId>, how: Align) {
+        let Some(all) = self.bounds_of(ids) else { return };
+        self.each(ids, |item| {
+            let b = item.bounds();
+            let shift = match how {
+                Align::Left => vec2(all.left() - b.left(), 0.0),
+                Align::Right => vec2(all.right() - b.right(), 0.0),
+                Align::Top => vec2(0.0, all.top() - b.top()),
+                Align::Bottom => vec2(0.0, all.bottom() - b.bottom()),
+                Align::CenterX => vec2(all.center().x - b.center().x, 0.0),
+                Align::CenterY => vec2(0.0, all.center().y - b.center().y),
+            };
+            item.center += shift;
+        });
+    }
+
+    /// Spaces items evenly between the first and the last one, left to right (or top to bottom):
+    /// the gaps between neighbours become equal.
+    pub fn distribute(&mut self, ids: &BTreeSet<ItemId>, horizontal: bool) {
+        let axis = |v: Vec2| if horizontal { v.x } else { v.y };
+        let mut order: Vec<(ItemId, Rect)> =
+            self.items.iter().filter(|item| ids.contains(&item.id)).map(|item| (item.id, item.bounds())).collect();
+        if order.len() < 3 {
+            return;
+        }
+        order.sort_by(|a, b| axis(a.1.min.to_vec2()).total_cmp(&axis(b.1.min.to_vec2())));
+        let first = axis(order[0].1.min.to_vec2());
+        let last = order.iter().map(|(_, r)| axis(r.max.to_vec2())).fold(f32::MIN, f32::max);
+        let total: f32 = order.iter().map(|(_, r)| axis(r.size())).sum();
+        let gap = (last - first - total) / (order.len() - 1) as f32;
+        let mut at = first;
+        for (id, rect) in order {
+            let delta = at - axis(rect.min.to_vec2());
+            if let Some(item) = self.items.iter_mut().find(|item| item.id == id) {
+                if horizontal {
+                    item.center.x += delta;
+                } else {
+                    item.center.y += delta;
+                }
+            }
+            at += axis(rect.size()) + gap;
+        }
+    }
+
+    /// Scales items about their own centres so they all get the same height (or width, or area)
+    /// on the board: the average of what they have now.
+    pub fn match_size(&mut self, ids: &BTreeSet<ItemId>, how: MatchSize) {
+        let measure = |item: &Item| {
+            let s = item.world_size();
+            match how {
+                MatchSize::Height => s.y,
+                MatchSize::Width => s.x,
+                MatchSize::Area => (s.x * s.y).sqrt(),
+            }
+        };
+        let values: Vec<f32> = self.items.iter().filter(|i| ids.contains(&i.id)).map(measure).collect();
+        if values.is_empty() {
+            return;
+        }
+        let target = values.iter().sum::<f32>() / values.len() as f32;
+        self.each(ids, |item| {
+            let now = measure(item);
+            if now > f32::EPSILON {
+                item.scale *= target / now;
+            }
+        });
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Align {
+    Left,
+    Right,
+    Top,
+    Bottom,
+    CenterX,
+    CenterY,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MatchSize {
+    Height,
+    Width,
+    Area,
 }
 
 /// Top-left positions for boxes (already sorted) laid in rows, aiming at a block whose
@@ -603,6 +696,61 @@ mod tests {
     fn packing_one_row_when_the_window_is_very_wide() {
         let places = shelf_pack(&[vec2(10.0, 10.0), vec2(10.0, 10.0), vec2(10.0, 10.0)], 100.0, 0.0);
         assert!(places.iter().all(|p| p.y == 0.0));
+    }
+
+    fn three_boxes() -> Scene {
+        let mut scene = Scene::default();
+        scene.items.push(Item::image(1, 1, 100, 50, pos2(0.0, 0.0)));
+        scene.items.push(Item::image(2, 1, 40, 80, pos2(300.0, 40.0)));
+        scene.items.push(Item::image(3, 1, 60, 60, pos2(130.0, -30.0)));
+        scene
+    }
+
+    #[test]
+    fn laying_out_in_order_reads_left_to_right() {
+        let mut scene = three_boxes();
+        scene.lay_out_in_order(&[3, 1, 2], 100.0, 5.0);
+        let x = |id| scene.get(id).unwrap().bounds().left();
+        assert!(x(3) < x(1) && x(1) < x(2));
+        let tops: Vec<f32> = [1, 2, 3].iter().map(|id| scene.get(*id).unwrap().bounds().top()).collect();
+        assert!(tops.iter().all(|t| (t - tops[0]).abs() < 1e-3), "one row: {tops:?}");
+    }
+
+    #[test]
+    fn aligning_left_lines_up_the_left_edges() {
+        let mut scene = three_boxes();
+        let all = scene.ids();
+        let left = scene.bounds_of(&all).unwrap().left();
+        scene.align(&all, Align::Left);
+        assert!(scene.items.iter().all(|i| (i.bounds().left() - left).abs() < 1e-3));
+        scene.align(&all, Align::CenterY);
+        let c = scene.items[0].bounds().center().y;
+        assert!(scene.items.iter().all(|i| (i.bounds().center().y - c).abs() < 1e-3));
+    }
+
+    #[test]
+    fn distributing_makes_equal_gaps_and_keeps_the_ends() {
+        let mut scene = three_boxes();
+        let all = scene.ids();
+        let before = scene.bounds_of(&all).unwrap();
+        scene.distribute(&all, true);
+        let mut rects: Vec<Rect> = scene.items.iter().map(Item::bounds).collect();
+        rects.sort_by(|a, b| a.left().total_cmp(&b.left()));
+        let gap1 = rects[1].left() - rects[0].right();
+        let gap2 = rects[2].left() - rects[1].right();
+        assert!((gap1 - gap2).abs() < 1e-3, "{gap1} vs {gap2}");
+        let after = scene.bounds_of(&all).unwrap();
+        assert!((after.left() - before.left()).abs() < 1e-3 && (after.right() - before.right()).abs() < 1e-3);
+    }
+
+    #[test]
+    fn matching_heights_gives_the_average_height() {
+        let mut scene = three_boxes();
+        let all = scene.ids();
+        scene.match_size(&all, MatchSize::Height);
+        let heights: Vec<f32> = scene.items.iter().map(|i| i.world_size().y).collect();
+        assert!(heights.iter().all(|h| (h - heights[0]).abs() < 1e-3));
+        assert!((heights[0] - (50.0 + 80.0 + 60.0) / 3.0).abs() < 1e-3);
     }
 
     #[test]

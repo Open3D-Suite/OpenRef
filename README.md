@@ -28,12 +28,15 @@ suite of open-source tools for 3D work.
   (Ctrl+Alt+T, pressed anywhere, to turn it on and off) to trace over a reference.
 - Colour picker: hold S and click, anywhere on the screen; the HEX goes to the clipboard.
 - Note looks and text sizes.
+- Arrange by name (Ctrl+Alt+N), align, distribute and same size.
+- Export images to a folder (Ctrl+E) or the board as one PNG (Ctrl+Shift+E).
+- Autosave every minute while there are changes; after a crash the next start offers the board
+  back. The copies live in `%LOCALAPPDATA%\OpenRef\recovery`.
 - Everything in the right-click menu, with its shortcut.
 
 ## Still to come for 0.1.0
 
-- Arrange by name, align, distribute and match sizes.
-- Export images or the whole board; autosave and recovery; a Spanish interface.
+- A Spanish interface and an icon.
 
 `.oref` boards are zip files: `board.json` describes the board and `images/` holds the original
 files, so any zip tool can take the pictures out.

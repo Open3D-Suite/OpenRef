@@ -21,6 +21,14 @@ What changed for users in each version of OpenRef, newest first.
 - **Text notes.** Ctrl+N adds a note under the mouse and you type straight away; pasting text that
   is not an image path makes a note too. Double-click a note (or press Enter) to change it; notes
   move, scale and rotate like images. Ctrl+C copies a note's text.
+- **Arrange.** Arrange by name (Ctrl+Alt+N) in reading order; align edges or centres; distribute
+  evenly; give images the same height, width or area. All in the menu's Arrange group.
+- **Export.** Ctrl+E writes the selected images (or all) into a folder: untouched ones as their
+  original files, cropped, flipped or grayscale ones as PNG. Ctrl+Shift+E saves the selection or the
+  whole board as one PNG, as sharp as its sharpest image allows (up to 8192 pixels a side), notes
+  included.
+- **Autosave.** While a board has unsaved changes, a copy is kept every minute. If OpenRef stops
+  without closing, the next start offers the board back.
 - **Undo and redo** every change (Ctrl+Z, Ctrl+Shift+Z or Ctrl+Y).
 - **Boards in one file.** Save and open `.oref` boards (Ctrl+S, Ctrl+Shift+S, Ctrl+O; a new board
   is Ctrl+Shift+N): the

@@ -4,9 +4,11 @@
 pub mod app;
 pub mod board_file;
 pub mod canvas;
+pub mod export;
 pub mod history;
 pub mod images;
 pub mod platform;
+pub mod recovery;
 pub mod scene;
 pub mod window;
 

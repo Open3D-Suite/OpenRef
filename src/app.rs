@@ -6,7 +6,8 @@ use crate::board_file::{self, EXTENSION};
 use crate::canvas::{Editor, BACKGROUND};
 use crate::images::{self, ImageStore, Source};
 use crate::platform;
-use crate::scene::{ItemKind, Scene};
+use crate::scene::{Align, ItemKind, MatchSize, Scene};
+use crate::{export, recovery};
 use eframe::egui::{self, Color32, Key, KeyboardShortcut, Modifiers, Vec2};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -77,6 +78,13 @@ pub enum Action {
     NoteSize(u8),
     /// One of [`NOTE_STYLES`].
     NoteStyle(u8),
+    ArrangeByName,
+    Align(Align),
+    /// Horizontally (true) or vertically.
+    Distribute(bool),
+    MatchSize(MatchSize),
+    ExportImages,
+    ExportBoard,
 }
 
 /// Note looks: name, text colour, background.
@@ -94,6 +102,8 @@ const SHORTCUTS: &[(Modifiers, Key, Action)] = &[
     (Modifiers::CTRL.plus(Modifiers::ALT), Key::T, Action::ClickThrough),
     (Modifiers::CTRL.plus(Modifiers::ALT), Key::B, Action::TransparentBackground),
     (Modifiers::CTRL.plus(Modifiers::SHIFT), Key::F, Action::Frameless),
+    (Modifiers::CTRL.plus(Modifiers::SHIFT), Key::E, Action::ExportBoard),
+    (Modifiers::CTRL.plus(Modifiers::ALT), Key::N, Action::ArrangeByName),
     (Modifiers::CTRL.plus(Modifiers::SHIFT), Key::ArrowDown, Action::Fade(true)),
     (Modifiers::CTRL.plus(Modifiers::SHIFT), Key::ArrowUp, Action::Fade(false)),
     (Modifiers::CTRL.plus(Modifiers::SHIFT), Key::S, Action::SaveAs),
@@ -105,6 +115,7 @@ const SHORTCUTS: &[(Modifiers, Key, Action)] = &[
     (Modifiers::ALT.plus(Modifiers::SHIFT), Key::H, Action::FlipHorizontal),
     (Modifiers::ALT.plus(Modifiers::SHIFT), Key::V, Action::FlipVertical),
     (Modifiers::CTRL, Key::N, Action::AddNote),
+    (Modifiers::CTRL, Key::E, Action::ExportImages),
     (Modifiers::CTRL, Key::O, Action::Open),
     (Modifiers::CTRL, Key::S, Action::Save),
     (Modifiers::CTRL, Key::I, Action::ImportImages),
@@ -194,6 +205,11 @@ pub struct OpenRefApp {
     picking: bool,
     /// While the window lets the mouse through: the system-wide shortcut that ends it.
     click_through: Option<platform::GlobalShortcut>,
+    autosave: recovery::Autosave,
+    /// A copy left by an OpenRef that did not close, to offer back.
+    offer: Option<recovery::Orphan>,
+    /// A board picture being made on another thread: where it goes, and the answer.
+    exporting: Option<(PathBuf, std::sync::mpsc::Receiver<Result<(), String>>)>,
 }
 
 impl OpenRefApp {
@@ -231,6 +247,9 @@ impl OpenRefApp {
             startup,
             picking: false,
             click_through: None,
+            autosave: recovery::Autosave::new(recovery::folder()),
+            offer: recovery::folder().and_then(|dir| recovery::find_orphan(&dir, platform::process_alive)),
+            exporting: None,
         }
     }
 
@@ -260,6 +279,83 @@ impl OpenRefApp {
             ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
             self.notify(ctx, "OpenRef takes the mouse again");
         }
+    }
+
+    /// Writes the selected images (or all) into a folder, each as its own file.
+    fn export_images(&mut self, ctx: &egui::Context, frame: &eframe::Frame) {
+        let targets = self.editor.targets();
+        let items: Vec<_> = self.editor.scene.items.iter().filter(|i| targets.contains(&i.id) && i.is_image()).cloned().collect();
+        if items.is_empty() {
+            self.notify(ctx, "There are no images to export");
+            return;
+        }
+        let mut dialog = rfd::FileDialog::new().set_title("Export images to…").set_parent(frame);
+        if let Some(folder) = self.dialog_folder() {
+            dialog = dialog.set_directory(folder);
+        }
+        let Some(dir) = dialog.pick_folder() else { return };
+        self.remember_folder(&dir);
+        let (mut written, mut failed) = (0, Vec::new());
+        for item in &items {
+            let Some(source) = item.image_key().and_then(|k| self.editor.images.source(k)) else { continue };
+            let result = export::image_file(item, source).and_then(|(bytes, ext)| {
+                let path = export::unique_path(&dir, &source.name, &ext);
+                std::fs::write(&path, bytes).map_err(|e| e.to_string())
+            });
+            match result {
+                Ok(()) => written += 1,
+                Err(error) => failed.push(format!("{}: {error}", source.name)),
+            }
+        }
+        match failed.first() {
+            None => self.notify(ctx, format!("{written} image{} exported", if written == 1 { "" } else { "s" })),
+            Some(first) => self.notify(ctx, format!("{written} exported; could not export {first}")),
+        }
+    }
+
+    /// Saves the selection (or the whole board) as one PNG, at the full size of its images.
+    fn export_board(&mut self, ctx: &egui::Context, frame: &eframe::Frame) {
+        if self.exporting.is_some() {
+            self.notify(ctx, "A picture is still being made");
+            return;
+        }
+        let targets = self.editor.targets();
+        let items: Vec<_> = self.editor.scene.items.iter().filter(|i| targets.contains(&i.id)).cloned().collect();
+        let Some(bounds) = items.iter().map(|i| i.bounds()).reduce(|a, b| a.union(b)) else {
+            self.notify(ctx, "The board is empty");
+            return;
+        };
+        // As sharp as the most shrunk image needs, within the size limit.
+        let wanted = items.iter().filter(|i| i.is_image()).map(|i| 1.0 / i.scale.max(1e-6)).fold(1.0f32, f32::max);
+        let limit = export::MAX_BOARD_SIDE as f32 / bounds.width().max(bounds.height()).max(1.0);
+        let scale = wanted.min(limit);
+        let mut dialog = rfd::FileDialog::new()
+            .set_title("Export board as PNG")
+            .add_filter("PNG image", &["png"])
+            .set_file_name(self.board_name() + ".png")
+            .set_parent(frame);
+        if let Some(folder) = self.dialog_folder() {
+            dialog = dialog.set_directory(folder);
+        }
+        let Some(mut path) = dialog.save_file() else { return };
+        if path.extension().is_none() {
+            path.set_extension("png");
+        }
+        self.remember_folder(&path);
+        let background = if self.settings.transparent_background { Color32::TRANSPARENT } else { BACKGROUND };
+        let sources = self.editor.images.sources();
+        let Some(job) = export::prepare_board(ctx, &items, &sources, scale, background) else { return };
+        let (w, h) = (job.width, job.height);
+        let (tx, rx) = std::sync::mpsc::channel();
+        let target = path.clone();
+        let repaint = ctx.clone();
+        std::thread::spawn(move || {
+            let result = export::render_board(job).and_then(|png| std::fs::write(&target, png).map_err(|e| e.to_string()));
+            let _ = tx.send(result);
+            repaint.request_repaint();
+        });
+        self.exporting = Some((path, rx));
+        self.notify(ctx, format!("Making a {w} × {h} picture…"));
     }
 
     /// Changes the selected notes' letter size and/or colours, keeping their top-left corners.
@@ -426,6 +522,48 @@ impl OpenRefApp {
                 let (_, text, fill) = NOTE_STYLES[n as usize % NOTE_STYLES.len()];
                 self.style_notes(ctx, None, Some((text, fill)));
             }
+            Action::ArrangeByName => {
+                let targets = self.editor.targets();
+                let mut order: Vec<(String, u64)> = self
+                    .editor
+                    .scene
+                    .items
+                    .iter()
+                    .filter(|i| targets.contains(&i.id))
+                    .map(|i| {
+                        let name = match &i.kind {
+                            ItemKind::Image { image, .. } => self.editor.images.source(*image).map(|s| s.name.clone()).unwrap_or_default(),
+                            ItemKind::Note { text, .. } => text.clone(),
+                        };
+                        (name.to_lowercase(), i.id)
+                    })
+                    .collect();
+                order.sort();
+                let ids: Vec<u64> = order.into_iter().map(|(_, id)| id).collect();
+                let editor = &mut self.editor;
+                let aspect = editor.viewport.width() / editor.viewport.height().max(1.0);
+                let gap = 8.0 / editor.camera.zoom.max(0.01);
+                editor.change(|scene, _| scene.lay_out_in_order(&ids, aspect, gap));
+                editor.focus(editor.selection.is_empty());
+            }
+            Action::Align(how) => {
+                let targets = editor.targets();
+                editor.change(|scene, _| scene.align(&targets, how));
+            }
+            Action::Distribute(horizontal) => {
+                let targets = editor.targets();
+                if targets.len() < 3 {
+                    self.notify(ctx, "Distributing needs three items or more");
+                } else {
+                    editor.change(|scene, _| scene.distribute(&targets, horizontal));
+                }
+            }
+            Action::MatchSize(how) => {
+                let targets = editor.targets();
+                editor.change(|scene, _| scene.match_size(&targets, how));
+            }
+            Action::ExportImages => self.export_images(ctx, frame),
+            Action::ExportBoard => self.export_board(ctx, frame),
             Action::BringToFront => editor.change(|scene, selection| scene.restack(selection, true)),
             Action::SendToBack => editor.change(|scene, selection| scene.restack(selection, false)),
             Action::Pack => {
@@ -612,6 +750,7 @@ impl OpenRefApp {
                 self.remember_folder(&path);
                 self.path = Some(path);
                 self.editor.dirty = false;
+                self.autosave.forget();
                 self.notify(ctx, "Saved");
                 true
             }
@@ -642,6 +781,7 @@ impl OpenRefApp {
         match board_file::load(&path) {
             Ok(board) => {
                 self.editor.replace(board.scene, board.images, board.view);
+                self.autosave.forget();
                 self.remember_folder(&path);
                 self.path = Some(path);
             }
@@ -794,6 +934,29 @@ impl OpenRefApp {
             item(ui, "Bring to front", Action::BringToFront, has_selection);
             item(ui, "Send to back", Action::SendToBack, has_selection);
             ui.separator();
+            item(ui, "Arrange by name", Action::ArrangeByName, has_items);
+            ui.menu_button("Align", |ui| {
+                for (label, how) in [
+                    ("Left edges", Align::Left),
+                    ("Right edges", Align::Right),
+                    ("Top edges", Align::Top),
+                    ("Bottom edges", Align::Bottom),
+                    ("Centres in a column", Align::CenterX),
+                    ("Centres in a row", Align::CenterY),
+                ] {
+                    item(ui, label, Action::Align(how), has_selection);
+                }
+            });
+            ui.menu_button("Distribute", |ui| {
+                item(ui, "Horizontally", Action::Distribute(true), has_selection);
+                item(ui, "Vertically", Action::Distribute(false), has_selection);
+            });
+            ui.menu_button("Same size", |ui| {
+                item(ui, "Same height", Action::MatchSize(MatchSize::Height), has_items);
+                item(ui, "Same width", Action::MatchSize(MatchSize::Width), has_items);
+                item(ui, "Same area", Action::MatchSize(MatchSize::Area), has_items);
+            });
+            ui.separator();
             item(ui, "Frame selection", Action::Focus, has_items);
             item(ui, "Frame everything", Action::FocusAll, has_items);
         });
@@ -804,6 +967,9 @@ impl OpenRefApp {
             item(ui, "Open board…", Action::Open, true);
             item(ui, "Save board", Action::Save, has_items);
             item(ui, "Save board as…", Action::SaveAs, has_items);
+            ui.separator();
+            item(ui, "Export images…", Action::ExportImages, has_items);
+            item(ui, "Export as PNG…", Action::ExportBoard, has_items);
         });
         ui.menu_button("Window", |ui| {
             let check = |on: bool, label: &str| if on { format!("✔ {label}") } else { label.to_string() };
@@ -820,6 +986,55 @@ impl OpenRefApp {
         });
         if let Some(action) = chosen {
             self.run_action(&ctx, frame, action);
+        }
+    }
+
+    /// Offers back a board that was not saved when OpenRef last stopped.
+    fn recovery_dialog(&mut self, ctx: &egui::Context) {
+        let Some(orphan) = self.offer.clone() else { return };
+        if self.asking.is_some() {
+            return;
+        }
+        let name = orphan
+            .original
+            .as_ref()
+            .and_then(|p| p.file_stem())
+            .map(|s| format!("“{}”", s.to_string_lossy()))
+            .unwrap_or_else(|| "A board".into());
+        let mut answer = None;
+        egui::Modal::new(egui::Id::unique("recover")).show(ctx, |ui| {
+            ui.set_width(340.0);
+            ui.heading("Recover the board?");
+            ui.label(format!("{name} had changes that were not saved when OpenRef last stopped."));
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                if ui.button("Recover").clicked() {
+                    answer = Some(true);
+                }
+                if ui.button("Discard").clicked() {
+                    answer = Some(false);
+                }
+            });
+        });
+        match answer {
+            Some(true) => {
+                match board_file::load(&orphan.board) {
+                    Ok(board) => {
+                        self.editor.replace(board.scene, board.images, board.view);
+                        self.editor.dirty = true;
+                        self.path = orphan.original.clone();
+                        self.notify(ctx, "Board recovered: save it to keep it");
+                    }
+                    Err(error) => self.notify(ctx, format!("Could not recover the board: {error}")),
+                }
+                orphan.discard();
+                self.offer = None;
+            }
+            Some(false) => {
+                orphan.discard();
+                self.offer = None;
+            }
+            None => {}
         }
     }
 
@@ -896,6 +1111,23 @@ impl eframe::App for OpenRefApp {
             self.asking = Some(Then::Close);
         }
         self.update_title(ctx);
+
+        // A finished board picture.
+        if let Some((path, rx)) = &self.exporting {
+            if let Ok(result) = rx.try_recv() {
+                let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                match result {
+                    Ok(()) => self.notify(ctx, format!("Exported {name}")),
+                    Err(error) => self.notify(ctx, format!("Could not export {name}: {error}")),
+                }
+                self.exporting = None;
+            }
+        }
+        // Autosave now and then while there are unsaved changes.
+        let now = ctx.input(|i| i.time);
+        let view = self.editor.camera.view();
+        let images = &self.editor.images;
+        self.autosave.tick(now, self.editor.dirty, &self.editor.scene, view, || images.sources(), self.path.clone());
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
@@ -953,6 +1185,12 @@ impl eframe::App for OpenRefApp {
 
         let ctx = ui.ctx().clone();
         self.ask_dialog(&ctx, frame);
+        self.recovery_dialog(&ctx);
+    }
+
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        // Closed on purpose (saved, or the user said not to save): nothing to recover.
+        self.autosave.forget();
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {

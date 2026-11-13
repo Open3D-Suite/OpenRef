@@ -180,6 +180,11 @@ impl ImageStore {
         self.entries.get(&key).map(|entry| &entry.source)
     }
 
+    /// Every image's source (cheap: the bytes are shared), for work on another thread.
+    pub fn sources(&self) -> HashMap<ImageKey, Source> {
+        self.entries.iter().map(|(key, entry)| (*key, entry.source.clone())).collect()
+    }
+
     /// The textures to draw; asks for the grayscale ones the first time they are needed.
     pub fn textures(&mut self, key: ImageKey, gray: bool) -> Option<&Textures> {
         if gray && matches!(self.entries.get(&key)?.gray, Textures::NotAsked) {
