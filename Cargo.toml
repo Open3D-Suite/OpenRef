@@ -1,0 +1,42 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+[package]
+name = "openref"
+version = "0.1.0"
+edition = "2021"
+description = "Reference-image boards: paste, drop, arrange and annotate images on an infinite canvas"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/carlesllavata/OpenRef"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "openref"
+path = "src/lib.rs"
+
+[[bin]]
+name = "OpenRef"
+path = "src/main.rs"
+
+[dependencies]
+eframe = { version = "0.37", default-features = false, features = [
+    "accesskit",
+    "clipboard",
+    "default_fonts",
+    "links",
+    "wgpu",
+] }
+
+[build-dependencies]
+winresource = "0.1"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+strip = true
+
+# Image decoding is far too slow without optimisation, so debug builds optimise the libraries.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3

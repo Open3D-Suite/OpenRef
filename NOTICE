@@ -1,0 +1,10 @@
+OpenRef
+Copyright (C) 2026 the OpenRef authors
+Licensed under the GNU General Public License, version 3 or later (see LICENSE).
+
+OpenRef is inspired by the behaviour of PureRef (https://www.pureref.com). It is not affiliated
+with PureRef or Idyllic Pixel AB and contains none of its code, images, texts or file formats.
+
+BeeRef (https://github.com/rbreu/beeref), by Rebecca Breu and contributors, licensed under the GNU
+General Public License, version 3 or later, is OpenRef's reference. Code ported from BeeRef is
+listed here, file by file, and its licence text is in LICENSES/. Nothing has been ported yet.
