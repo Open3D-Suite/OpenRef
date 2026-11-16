@@ -2,6 +2,11 @@
 
 What changed for users in each version of OpenRef, newest first.
 
+## 0.1.1 — 16 November 2026
+
+- **The program no longer names folders of the computer it was built on.** Earlier builds
+  carried the full paths of their source files inside `OpenRef.exe`. Nothing else changes.
+
 ## 0.1.0 — 13 November 2026
 
 The first release: a reference-image board for Windows that floats over 3ds Max or any other

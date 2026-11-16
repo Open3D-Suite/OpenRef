@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 [package]
 name = "openref"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Reference-image boards: paste, drop, arrange and annotate images on an infinite canvas"
 license = "GPL-3.0-or-later"
