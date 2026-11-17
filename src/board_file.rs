@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::io::{Read, Write};
 use std::path::Path;
-use zip::write::SimpleFileOptions;
 use zip::CompressionMethod;
+use zip::write::SimpleFileOptions;
 
 pub const EXTENSION: &str = "oref";
 const FORMAT: &str = "openref-board";
@@ -54,12 +54,7 @@ pub struct Board {
 
 /// Writes the board next to `path` first and then puts it in place, so a failed save never
 /// leaves half a file where the good one was. Only images some item shows are saved.
-pub fn save(
-    path: &Path,
-    scene: &Scene,
-    view: Option<View>,
-    source: impl Fn(ImageKey) -> Option<Source>,
-) -> Result<(), String> {
+pub fn save(path: &Path, scene: &Scene, view: Option<View>, source: impl Fn(ImageKey) -> Option<Source>) -> Result<(), String> {
     let keys: BTreeSet<ImageKey> = scene.items.iter().filter_map(Item::image_key).collect();
     let mut records = Vec::new();
     let mut files = Vec::new();
@@ -116,8 +111,7 @@ pub fn save(
 
 pub fn load(path: &Path) -> Result<Board, String> {
     let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
-    let mut zip = zip::ZipArchive::new(std::io::BufReader::new(file))
-        .map_err(|_| "this is not an OpenRef board".to_string())?;
+    let mut zip = zip::ZipArchive::new(std::io::BufReader::new(file)).map_err(|_| "this is not an OpenRef board".to_string())?;
     let json: BoardJson = {
         let mut entry = zip.by_name(BOARD_JSON).map_err(|_| "this is not an OpenRef board".to_string())?;
         let mut text = Vec::new();
@@ -135,8 +129,7 @@ pub fn load(path: &Path) -> Result<Board, String> {
         let mut entry = zip.by_name(&record.file).map_err(|_| format!("the board lacks {}", record.file))?;
         let mut bytes = Vec::with_capacity(entry.size() as usize);
         entry.read_to_end(&mut bytes).map_err(|e| e.to_string())?;
-        let source = Source::from_bytes(bytes.into(), record.name, record.origin)
-            .map_err(|e| format!("{}: {e}", record.file))?;
+        let source = Source::from_bytes(bytes.into(), record.name, record.origin).map_err(|e| format!("{}: {e}", record.file))?;
         images.push((record.key, source));
     }
     let keys: BTreeSet<ImageKey> = images.iter().map(|(key, _)| *key).collect();

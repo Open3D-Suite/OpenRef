@@ -3,7 +3,7 @@
 //! the click-through badge and the colour picker's loupe.
 
 use crate::platform;
-use egui::{pos2, vec2, Align2, Color32, CursorIcon, FontId, Rect, ResizeDirection, Sense, Stroke, StrokeKind, Ui, ViewportCommand};
+use egui::{Align2, Color32, CursorIcon, FontId, Rect, ResizeDirection, Sense, Stroke, StrokeKind, Ui, ViewportCommand, pos2, vec2};
 
 const EDGE: f32 = 6.0;
 const BAR: f32 = 28.0;

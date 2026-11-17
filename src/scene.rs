@@ -4,7 +4,7 @@
 //! World units are image pixels at scale 1. An item's local frame has its origin at the item's
 //! centre; a local point goes to the world by flipping, scaling, rotating and moving (in that order).
 
-use egui::{pos2, vec2, Color32, Pos2, Rect, Vec2};
+use egui::{Color32, Pos2, Rect, Vec2, pos2, vec2};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
@@ -83,11 +83,7 @@ impl Item {
     pub fn image(id: ItemId, image: ImageKey, width: u32, height: u32, center: Pos2) -> Self {
         Self {
             id,
-            kind: ItemKind::Image {
-                image,
-                crop: Rect::from_min_size(Pos2::ZERO, vec2(width as f32, height as f32)),
-                grayscale: false,
-            },
+            kind: ItemKind::Image { image, crop: Rect::from_min_size(Pos2::ZERO, vec2(width as f32, height as f32)), grayscale: false },
             center,
             scale: 1.0,
             rotation: 0.0,
@@ -126,31 +122,20 @@ impl Item {
     }
 
     pub fn to_world(&self, local: Vec2) -> Pos2 {
-        let flipped = vec2(
-            if self.flip_x { -local.x } else { local.x },
-            if self.flip_y { -local.y } else { local.y },
-        );
+        let flipped = vec2(if self.flip_x { -local.x } else { local.x }, if self.flip_y { -local.y } else { local.y });
         self.center + rotate(flipped * self.scale, self.rotation)
     }
 
     pub fn to_local(&self, world: Pos2) -> Vec2 {
         let v = rotate(world - self.center, -self.rotation) / self.scale.max(f32::EPSILON);
-        vec2(
-            if self.flip_x { -v.x } else { v.x },
-            if self.flip_y { -v.y } else { v.y },
-        )
+        vec2(if self.flip_x { -v.x } else { v.x }, if self.flip_y { -v.y } else { v.y })
     }
 
     /// The four corners in world space: top-left, top-right, bottom-right, bottom-left of the
     /// item's own frame (so a flipped item's "top-left" is wherever its image's top-left went).
     pub fn corners(&self) -> [Pos2; 4] {
         let h = self.local_size() / 2.0;
-        [
-            self.to_world(vec2(-h.x, -h.y)),
-            self.to_world(vec2(h.x, -h.y)),
-            self.to_world(vec2(h.x, h.y)),
-            self.to_world(vec2(-h.x, h.y)),
-        ]
+        [self.to_world(vec2(-h.x, -h.y)), self.to_world(vec2(h.x, -h.y)), self.to_world(vec2(h.x, h.y)), self.to_world(vec2(-h.x, h.y))]
     }
 
     pub fn contains(&self, world: Pos2) -> bool {
@@ -174,11 +159,7 @@ pub fn rotate(v: Vec2, angle: f32) -> Vec2 {
 pub fn wrap_angle(angle: f32) -> f32 {
     let tau = std::f32::consts::TAU;
     let a = angle.rem_euclid(tau);
-    if a > std::f32::consts::PI {
-        a - tau
-    } else {
-        a
-    }
+    if a > std::f32::consts::PI { a - tau } else { a }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -213,11 +194,7 @@ impl Scene {
     }
 
     pub fn bounds_of(&self, ids: &BTreeSet<ItemId>) -> Option<Rect> {
-        self.items
-            .iter()
-            .filter(|item| ids.contains(&item.id))
-            .map(Item::bounds)
-            .reduce(|a, b| a.union(b))
+        self.items.iter().filter(|item| ids.contains(&item.id)).map(Item::bounds).reduce(|a, b| a.union(b))
     }
 
     pub fn bounds(&self) -> Option<Rect> {
@@ -312,12 +289,8 @@ impl Scene {
 
     /// Shows whole images again.
     pub fn reset_crop(&mut self, ids: &BTreeSet<ItemId>, image_size: impl Fn(ImageKey) -> Option<Vec2>) {
-        let crops: Vec<(ItemId, Vec2)> = self
-            .items
-            .iter()
-            .filter(|item| ids.contains(&item.id))
-            .filter_map(|item| Some((item.id, image_size(item.image_key()?)?)))
-            .collect();
+        let crops: Vec<(ItemId, Vec2)> =
+            self.items.iter().filter(|item| ids.contains(&item.id)).filter_map(|item| Some((item.id, image_size(item.image_key()?)?))).collect();
         for (id, size) in crops {
             self.set_crop(id, Rect::from_min_size(Pos2::ZERO, size), size);
         }
@@ -375,8 +348,7 @@ impl Scene {
 
     /// Moves the items to the top (or the bottom) of the drawing order, keeping their own order.
     pub fn restack(&mut self, ids: &BTreeSet<ItemId>, to_front: bool) {
-        let (mut chosen, rest): (Vec<Item>, Vec<Item>) =
-            self.items.drain(..).partition(|item| ids.contains(&item.id));
+        let (mut chosen, rest): (Vec<Item>, Vec<Item>) = self.items.drain(..).partition(|item| ids.contains(&item.id));
         if to_front {
             self.items = rest;
             self.items.append(&mut chosen);
@@ -389,12 +361,8 @@ impl Scene {
     /// Lays the items out in rows that fill a rectangle of the given aspect (width / height),
     /// tallest first, with `gap` world units between them. The block keeps its top-left corner.
     pub fn pack(&mut self, ids: &BTreeSet<ItemId>, aspect: f32, gap: f32) {
-        let mut order: Vec<(ItemId, f32)> = self
-            .items
-            .iter()
-            .filter(|item| ids.contains(&item.id))
-            .map(|item| (item.id, item.bounds().height()))
-            .collect();
+        let mut order: Vec<(ItemId, f32)> =
+            self.items.iter().filter(|item| ids.contains(&item.id)).map(|item| (item.id, item.bounds().height())).collect();
         // Tallest first; equal heights keep the drawing order (the sort is stable).
         order.sort_by(|a, b| b.1.total_cmp(&a.1));
         self.lay_out_in_order(&order.into_iter().map(|(id, _)| id).collect::<Vec<_>>(), aspect, gap);
@@ -437,8 +405,7 @@ impl Scene {
     /// the gaps between neighbours become equal.
     pub fn distribute(&mut self, ids: &BTreeSet<ItemId>, horizontal: bool) {
         let axis = |v: Vec2| if horizontal { v.x } else { v.y };
-        let mut order: Vec<(ItemId, Rect)> =
-            self.items.iter().filter(|item| ids.contains(&item.id)).map(|item| (item.id, item.bounds())).collect();
+        let mut order: Vec<(ItemId, Rect)> = self.items.iter().filter(|item| ids.contains(&item.id)).map(|item| (item.id, item.bounds())).collect();
         if order.len() < 3 {
             return;
         }

@@ -9,7 +9,7 @@ use crate::scene::{ImageKey, Scene};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{channel, Receiver};
+use std::sync::mpsc::{Receiver, channel};
 
 /// Seconds between autosaves while there are changes.
 pub const EVERY: f64 = 60.0;
@@ -137,7 +137,7 @@ mod tests {
     use super::*;
     use crate::images::encode_png;
     use crate::scene::Item;
-    use egui::{pos2, Pos2};
+    use egui::{Pos2, pos2};
 
     fn scratch(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("openref-recovery-{}-{name}", std::process::id()));

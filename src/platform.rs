@@ -3,13 +3,13 @@
 //! (for the colour picker) and a system-wide shortcut (to leave click-through mode, when the
 //! window no longer gets the mouse or the keyboard).
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Colour of a screen pixel (physical pixels, desktop coordinates) as [r, g, b].
 #[cfg(windows)]
 pub fn screen_pixel(x: i32, y: i32) -> Option<[u8; 3]> {
-    use windows_sys::Win32::Graphics::Gdi::{GetDC, GetPixel, ReleaseDC, CLR_INVALID};
+    use windows_sys::Win32::Graphics::Gdi::{CLR_INVALID, GetDC, GetPixel, ReleaseDC};
     // SAFETY: the desktop DC is taken and given back here; GetPixel only reads.
     unsafe {
         let dc = GetDC(std::ptr::null_mut());
@@ -66,9 +66,7 @@ impl GlobalShortcut {
     #[cfg(windows)]
     pub fn ctrl_alt(key: char, ctx: egui::Context) -> Result<Self, String> {
         use windows_sys::Win32::System::Threading::GetCurrentThreadId;
-        use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-            RegisterHotKey, UnregisterHotKey, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT,
-        };
+        use windows_sys::Win32::UI::Input::KeyboardAndMouse::{MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, RegisterHotKey, UnregisterHotKey};
         use windows_sys::Win32::UI::WindowsAndMessaging::{GetMessageW, MSG, WM_HOTKEY};
 
         let pressed = Arc::new(AtomicBool::new(false));

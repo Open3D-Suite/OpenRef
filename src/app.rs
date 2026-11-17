@@ -3,11 +3,11 @@
 //! opening and saving boards, and the question before unsaved changes are lost.
 
 use crate::board_file::{self, EXTENSION};
-use crate::canvas::{Editor, BACKGROUND};
+use crate::canvas::{BACKGROUND, Editor};
 use crate::images::{self, ImageStore, Source};
 use crate::platform;
 use crate::scene::{Align, ItemKind, MatchSize, Scene};
-use crate::text::{tf, tr, Lang};
+use crate::text::{Lang, tf, tr};
 use crate::{export, recovery};
 use eframe::egui::{self, Color32, Key, KeyboardShortcut, Modifiers, Vec2};
 use serde::{Deserialize, Serialize};
@@ -199,14 +199,7 @@ struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        Self {
-            always_on_top: false,
-            folder: None,
-            frameless: false,
-            see_through: 1.0,
-            transparent_background: false,
-            lang: Lang::En,
-        }
+        Self { always_on_top: false, folder: None, frameless: false, see_through: 1.0, transparent_background: false, lang: Lang::En }
     }
 }
 
@@ -456,10 +449,8 @@ impl OpenRefApp {
                 self.save(ctx, frame, true);
             }
             Action::ImportImages => {
-                let mut dialog = rfd::FileDialog::new()
-                    .set_title(tr(lang, "Add images"))
-                    .add_filter(tr(lang, "Images"), IMAGE_EXTENSIONS)
-                    .set_parent(frame);
+                let mut dialog =
+                    rfd::FileDialog::new().set_title(tr(lang, "Add images")).add_filter(tr(lang, "Images"), IMAGE_EXTENSIONS).set_parent(frame);
                 if let Some(folder) = self.dialog_folder() {
                     dialog = dialog.set_directory(folder);
                 }
@@ -520,13 +511,8 @@ impl OpenRefApp {
             }
             Action::ResetCrop => {
                 let targets = editor.targets();
-                let sizes: std::collections::HashMap<_, _> = editor
-                    .scene
-                    .items
-                    .iter()
-                    .filter_map(|i| i.image_key())
-                    .filter_map(|k| Some((k, editor.image_size(k)?)))
-                    .collect();
+                let sizes: std::collections::HashMap<_, _> =
+                    editor.scene.items.iter().filter_map(|i| i.image_key()).filter_map(|k| Some((k, editor.image_size(k)?))).collect();
                 editor.change(|scene, _| scene.reset_crop(&targets, |k| sizes.get(&k).copied()));
             }
             Action::Frameless => {
@@ -628,11 +614,7 @@ impl OpenRefApp {
             }
             Action::AlwaysOnTop => {
                 self.settings.always_on_top = !self.settings.always_on_top;
-                let level = if self.settings.always_on_top {
-                    egui::WindowLevel::AlwaysOnTop
-                } else {
-                    egui::WindowLevel::Normal
-                };
+                let level = if self.settings.always_on_top { egui::WindowLevel::AlwaysOnTop } else { egui::WindowLevel::Normal };
                 ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(level));
                 let text = if self.settings.always_on_top { "Always on top" } else { "Not on top" };
                 self.say(ctx, text);
@@ -757,11 +739,7 @@ impl OpenRefApp {
         });
         let copied = match (result, self.clipboard.as_mut()) {
             (Ok(cut), Some(clipboard)) => clipboard
-                .set_image(arboard::ImageData {
-                    width: cut.width() as usize,
-                    height: cut.height() as usize,
-                    bytes: cut.into_raw().into(),
-                })
+                .set_image(arboard::ImageData { width: cut.width() as usize, height: cut.height() as usize, bytes: cut.into_raw().into() })
                 .map_err(|e| e.to_string()),
             (Ok(_), None) => Err("the clipboard is not available".into()),
             (Err(error), _) => Err(error),
@@ -814,10 +792,8 @@ impl OpenRefApp {
         let path = match path {
             Some(path) => path,
             None => {
-                let mut dialog = rfd::FileDialog::new()
-                    .set_title(tr(lang, "Open board"))
-                    .add_filter(tr(lang, "OpenRef board"), &[EXTENSION])
-                    .set_parent(frame);
+                let mut dialog =
+                    rfd::FileDialog::new().set_title(tr(lang, "Open board")).add_filter(tr(lang, "OpenRef board"), &[EXTENSION]).set_parent(frame);
                 if let Some(folder) = self.dialog_folder() {
                     dialog = dialog.set_directory(folder);
                 }
@@ -840,11 +816,7 @@ impl OpenRefApp {
 
     fn board_name(&self) -> String {
         let lang = self.settings.lang;
-        self.path
-            .as_ref()
-            .and_then(|p| p.file_stem())
-            .map(|s| s.to_string_lossy().into_owned())
-            .unwrap_or_else(|| tr(lang, "Untitled").into())
+        self.path.as_ref().and_then(|p| p.file_stem()).map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| tr(lang, "Untitled").into())
     }
 
     fn update_title(&mut self, ctx: &egui::Context) {
@@ -880,9 +852,7 @@ impl OpenRefApp {
         }
         if self.editor.is_cropping() {
             let done = ctx.input_mut(|input| {
-                [Key::Enter, Key::Escape, Key::C]
-                    .into_iter()
-                    .any(|key| input.consume_shortcut(&KeyboardShortcut::new(Modifiers::NONE, key)))
+                [Key::Enter, Key::Escape, Key::C].into_iter().any(|key| input.consume_shortcut(&KeyboardShortcut::new(Modifiers::NONE, key)))
             });
             if done {
                 self.editor.finish_crop();
@@ -937,12 +907,7 @@ impl OpenRefApp {
             }
         };
         let single = self.editor.single().map(|i| i.is_image());
-        let has_notes = self
-            .editor
-            .scene
-            .items
-            .iter()
-            .any(|i| self.editor.selection.contains(&i.id) && !i.is_image());
+        let has_notes = self.editor.scene.items.iter().any(|i| self.editor.selection.contains(&i.id) && !i.is_image());
         // Short at the top level, the rest in submenus, so the menu fits small windows.
         item(ui, t("Paste"), Action::Paste, true);
         item(ui, t("Copy"), Action::Copy, single.is_some());

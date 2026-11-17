@@ -8,7 +8,7 @@
 use crate::images::{self, Source};
 use crate::scene::{ImageKey, Item, ItemKind, NOTE_PADDING};
 use egui::epaint::{ClippedShape, Primitive, TextShape, Vertex};
-use egui::{pos2, Color32, FontId, Mesh, Pos2, Rect, Shape, Stroke, TextureId, Vec2};
+use egui::{Color32, FontId, Mesh, Pos2, Rect, Shape, Stroke, TextureId, Vec2, pos2};
 use image::RgbaImage;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -75,13 +75,7 @@ pub struct BoardJob {
 
 /// Turns the chosen items into meshes in picture pixels (`scale` pixels per world unit).
 /// Must run on the window's thread: it lays out text with the window's fonts.
-pub fn prepare_board(
-    ctx: &egui::Context,
-    items: &[Item],
-    sources: &HashMap<ImageKey, Source>,
-    scale: f32,
-    background: Color32,
-) -> Option<BoardJob> {
+pub fn prepare_board(ctx: &egui::Context, items: &[Item], sources: &HashMap<ImageKey, Source>, scale: f32, background: Color32) -> Option<BoardJob> {
     let bounds = items.iter().map(Item::bounds).reduce(|a, b| a.union(b))?;
     let width = (bounds.width() * scale).ceil().max(1.0) as u32;
     let height = (bounds.height() * scale).ceil().max(1.0) as u32;
@@ -112,8 +106,7 @@ pub fn prepare_board(
                 shapes.push(Shape::convex_polygon(corners.to_vec(), fill.gamma_multiply(alpha), Stroke::NONE));
                 let px = (font_size * item.scale * scale).min(MAX_FONT_PX);
                 if px >= 2.0 {
-                    let galley =
-                        ctx.fonts_mut(|f| f.layout_no_wrap(text.clone(), FontId::proportional(px), color.gamma_multiply(alpha)));
+                    let galley = ctx.fonts_mut(|f| f.layout_no_wrap(text.clone(), FontId::proportional(px), color.gamma_multiply(alpha)));
                     let at = map(item.to_world(-item.local_size() / 2.0 + Vec2::splat(NOTE_PADDING * font_size)));
                     shapes.push(Shape::Text(TextShape::new(at, galley, *color).with_angle(item.rotation)));
                 }
@@ -238,10 +231,7 @@ fn fill_triangle(canvas: &mut [[f32; 4]], w: usize, h: usize, mut v: [Vertex; 3]
                 continue;
             }
             let (b0, b1, b2) = (w0 / area, w1 / area, w2 / area);
-            let uv = pos2(
-                b0 * v[0].uv.x + b1 * v[1].uv.x + b2 * v[2].uv.x,
-                b0 * v[0].uv.y + b1 * v[1].uv.y + b2 * v[2].uv.y,
-            );
+            let uv = pos2(b0 * v[0].uv.x + b1 * v[1].uv.x + b2 * v[2].uv.x, b0 * v[0].uv.y + b1 * v[1].uv.y + b2 * v[2].uv.y);
             let texel = texture.sample(uv);
             let mut src = [0.0f32; 4];
             for (c, s) in src.iter_mut().enumerate() {

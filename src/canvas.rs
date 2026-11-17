@@ -6,13 +6,10 @@
 use crate::board_file::View;
 use crate::history::History;
 use crate::images::{ImageStore, Source, Textures};
-use crate::scene::{wrap_angle, ImageKey, Item, ItemId, ItemKind, Scene, NOTE_PADDING};
-use crate::text::{tr, Lang};
+use crate::scene::{ImageKey, Item, ItemId, ItemKind, NOTE_PADDING, Scene, wrap_angle};
+use crate::text::{Lang, tr};
 use egui::epaint::TextShape;
-use egui::{
-    pos2, vec2, Align2, Color32, CursorIcon, FontId, Mesh, PointerButton, Pos2, Rect, Response, Sense,
-    Shape, Stroke, StrokeKind, Ui, Vec2,
-};
+use egui::{Align2, Color32, CursorIcon, FontId, Mesh, PointerButton, Pos2, Rect, Response, Sense, Shape, Stroke, StrokeKind, Ui, Vec2, pos2, vec2};
 use std::collections::BTreeSet;
 use std::f32::consts::FRAC_PI_4;
 
@@ -113,12 +110,31 @@ fn panned_crop(start: Rect, delta: Vec2, image: Vec2) -> Rect {
 
 enum Gesture {
     None,
-    Move { start: Pos2, before: Scene },
-    Scale { anchor: Pos2, start: Pos2, before: Scene },
-    Rotate { pivot: Pos2, start_angle: f32, before: Scene },
-    Marquee { start: Pos2, base: BTreeSet<ItemId> },
+    Move {
+        start: Pos2,
+        before: Scene,
+    },
+    Scale {
+        anchor: Pos2,
+        start: Pos2,
+        before: Scene,
+    },
+    Rotate {
+        pivot: Pos2,
+        start_angle: f32,
+        before: Scene,
+    },
+    Marquee {
+        start: Pos2,
+        base: BTreeSet<ItemId>,
+    },
     /// Dragging crop sides (to image pixels) or the whole crop over its image.
-    Crop { item: Item, start_pixel: Pos2, start_crop: Rect, sides: Option<Sides> },
+    Crop {
+        item: Item,
+        start_pixel: Pos2,
+        start_crop: Rect,
+        sides: Option<Sides>,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -260,11 +276,7 @@ impl Editor {
 
     /// The selection, or every item when nothing is selected.
     pub fn targets(&self) -> BTreeSet<ItemId> {
-        if self.selection.is_empty() {
-            self.scene.ids()
-        } else {
-            self.selection.clone()
-        }
+        if self.selection.is_empty() { self.scene.ids() } else { self.selection.clone() }
     }
 
     /// The one selected item, when exactly one is selected.
@@ -502,11 +514,7 @@ impl Editor {
             if matches!(self.gesture, Gesture::None) && self.editing.is_none() {
                 if let Some(p) = pointer {
                     match self.handle_at(p) {
-                        Some(Handle::Corner(i)) => ui.ctx().set_cursor_icon(if i % 2 == 0 {
-                            CursorIcon::ResizeNwSe
-                        } else {
-                            CursorIcon::ResizeNeSw
-                        }),
+                        Some(Handle::Corner(i)) => ui.ctx().set_cursor_icon(if i % 2 == 0 { CursorIcon::ResizeNwSe } else { CursorIcon::ResizeNeSw }),
                         Some(Handle::Rotate) => ui.ctx().set_cursor_icon(CursorIcon::Alias),
                         None => {}
                     }
@@ -622,10 +630,7 @@ impl Editor {
                 let start = world(self, origin);
                 if let Some(handle) = self.handle_at(origin) {
                     let corners = self.frame_corners().unwrap_or([start; 4]);
-                    let center = pos2(
-                        corners.iter().map(|c| c.x).sum::<f32>() / 4.0,
-                        corners.iter().map(|c| c.y).sum::<f32>() / 4.0,
-                    );
+                    let center = pos2(corners.iter().map(|c| c.x).sum::<f32>() / 4.0, corners.iter().map(|c| c.y).sum::<f32>() / 4.0);
                     let before = self.scene.clone();
                     self.gesture = match handle {
                         Handle::Corner(i) => {
@@ -800,13 +805,7 @@ impl Editor {
                             painter.add(Shape::convex_polygon(corners.to_vec(), fill, Stroke::NONE));
                             let label = if failed { tr(lang, "Cannot show this image") } else { tr(lang, "Loading…") };
                             if bounds.width() > 80.0 && bounds.height() > 24.0 {
-                                painter.text(
-                                    bounds.center(),
-                                    Align2::CENTER_CENTER,
-                                    label,
-                                    FontId::proportional(13.0),
-                                    Color32::from_gray(170),
-                                );
+                                painter.text(bounds.center(), Align2::CENTER_CENTER, label, FontId::proportional(13.0), Color32::from_gray(170));
                             }
                         }
                     }
@@ -819,19 +818,21 @@ impl Editor {
                     let zoom = camera.zoom * item.scale;
                     let screen_font = font_size * zoom;
                     if screen_font >= 3.0 {
-                        let galley = painter.layout_no_wrap(
-                            text.clone(),
-                            FontId::proportional(screen_font.min(MAX_SCREEN_FONT)),
-                            color.gamma_multiply(alpha),
-                        );
+                        let galley =
+                            painter.layout_no_wrap(text.clone(), FontId::proportional(screen_font.min(MAX_SCREEN_FONT)), color.gamma_multiply(alpha));
                         let pad = Vec2::splat(NOTE_PADDING * font_size);
                         let at = screen(item.to_world(-item.local_size() / 2.0 + pad));
                         painter.add(TextShape::new(at, galley, *color).with_angle(item.rotation));
                     } else {
                         // Too small to read: a grey bar stands for the text.
                         let inner = item.local_size() / 2.0 - Vec2::splat(NOTE_PADDING * font_size);
-                        let bar = [vec2(-inner.x, -inner.y * 0.3), vec2(inner.x, -inner.y * 0.3), vec2(inner.x, inner.y * 0.3), vec2(-inner.x, inner.y * 0.3)]
-                            .map(|v| screen(item.to_world(v)));
+                        let bar = [
+                            vec2(-inner.x, -inner.y * 0.3),
+                            vec2(inner.x, -inner.y * 0.3),
+                            vec2(inner.x, inner.y * 0.3),
+                            vec2(-inner.x, inner.y * 0.3),
+                        ]
+                        .map(|v| screen(item.to_world(v)));
                         painter.add(Shape::convex_polygon(bar.to_vec(), color.gamma_multiply(0.3 * alpha), Stroke::NONE));
                     }
                 }
@@ -892,7 +893,13 @@ impl Editor {
         if self.scene.is_empty() {
             let c = rect.center();
             let hint = Color32::from_gray(150);
-            painter.text(c - vec2(0.0, 12.0), Align2::CENTER_CENTER, tr(lang, "Paste (Ctrl+V) or drop images here"), FontId::proportional(18.0), hint);
+            painter.text(
+                c - vec2(0.0, 12.0),
+                Align2::CENTER_CENTER,
+                tr(lang, "Paste (Ctrl+V) or drop images here"),
+                FontId::proportional(18.0),
+                hint,
+            );
             painter.text(
                 c + vec2(0.0, 16.0),
                 Align2::CENTER_CENTER,
@@ -906,15 +913,7 @@ impl Editor {
 
 /// A textured quad showing the `part` of an image (in image pixels) placed on the item, whose
 /// frame shows `crop`. `full` is the whole image.
-fn image_mesh(
-    item: &Item,
-    texture: &egui::TextureHandle,
-    part: Rect,
-    crop: Rect,
-    full: Rect,
-    screen: impl Fn(Pos2) -> Pos2,
-    alpha: f32,
-) -> Shape {
+fn image_mesh(item: &Item, texture: &egui::TextureHandle, part: Rect, crop: Rect, full: Rect, screen: impl Fn(Pos2) -> Pos2, alpha: f32) -> Shape {
     let tint = Color32::from_white_alpha((alpha.clamp(0.0, 1.0) * 255.0).round() as u8);
     let mut mesh = Mesh::with_texture(texture.id());
     let pixels = [part.left_top(), part.right_top(), part.right_bottom(), part.left_bottom()];

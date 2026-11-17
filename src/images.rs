@@ -10,8 +10,8 @@ use image::{DynamicImage, ImageDecoder, ImageReader, RgbaImage};
 use std::collections::HashMap;
 use std::io::Cursor;
 use std::path::Path;
-use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
+use std::sync::mpsc::{Receiver, Sender, channel};
 
 /// Smallest texture made for an image (its longest side, in pixels).
 const SMALLEST_LEVEL: u32 = 256;
@@ -72,9 +72,7 @@ fn probe(bytes: &[u8]) -> Result<(String, u32, u32), String> {
 
 pub fn encode_png(width: u32, height: u32, rgba: &[u8]) -> Result<Vec<u8>, String> {
     let mut out = Vec::new();
-    image::codecs::png::PngEncoder::new(&mut out)
-        .write_image(rgba, width, height, image::ExtendedColorType::Rgba8)
-        .map_err(|e| e.to_string())?;
+    image::codecs::png::PngEncoder::new(&mut out).write_image(rgba, width, height, image::ExtendedColorType::Rgba8).map_err(|e| e.to_string())?;
     Ok(out)
 }
 
