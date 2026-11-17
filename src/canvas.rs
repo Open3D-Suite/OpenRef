@@ -431,10 +431,10 @@ impl Editor {
             } else {
                 None
             };
-            if let Some(h) = handle {
-                if best.is_none_or(|(bd, _)| d < bd) {
-                    best = Some((d, h));
-                }
+            if let Some(h) = handle
+                && best.is_none_or(|(bd, _)| d < bd)
+            {
+                best = Some((d, h));
             }
         }
         best.map(|(_, h)| h)
@@ -500,24 +500,25 @@ impl Editor {
                 self.primary_gestures(ui, &response, pointer, modifiers);
             }
 
-            if response.secondary_clicked() {
-                if let Some(p) = pointer {
-                    match self.scene.hit(self.camera.to_world(rect, p)) {
-                        Some(id) if !self.selection.contains(&id) => self.selection = BTreeSet::from([id]),
-                        None if !modifiers.ctrl => self.selection.clear(),
-                        _ => {}
-                    }
+            if response.secondary_clicked()
+                && let Some(p) = pointer
+            {
+                match self.scene.hit(self.camera.to_world(rect, p)) {
+                    Some(id) if !self.selection.contains(&id) => self.selection = BTreeSet::from([id]),
+                    None if !modifiers.ctrl => self.selection.clear(),
+                    _ => {}
                 }
             }
 
             // Cursor over handles.
-            if matches!(self.gesture, Gesture::None) && self.editing.is_none() {
-                if let Some(p) = pointer {
-                    match self.handle_at(p) {
-                        Some(Handle::Corner(i)) => ui.ctx().set_cursor_icon(if i % 2 == 0 { CursorIcon::ResizeNwSe } else { CursorIcon::ResizeNeSw }),
-                        Some(Handle::Rotate) => ui.ctx().set_cursor_icon(CursorIcon::Alias),
-                        None => {}
-                    }
+            if matches!(self.gesture, Gesture::None)
+                && self.editing.is_none()
+                && let Some(p) = pointer
+            {
+                match self.handle_at(p) {
+                    Some(Handle::Corner(i)) => ui.ctx().set_cursor_icon(if i % 2 == 0 { CursorIcon::ResizeNwSe } else { CursorIcon::ResizeNeSw }),
+                    Some(Handle::Rotate) => ui.ctx().set_cursor_icon(CursorIcon::Alias),
+                    None => {}
                 }
             }
         }
@@ -553,54 +554,52 @@ impl Editor {
             }
         }
 
-        if response.drag_started_by(PointerButton::Primary) {
-            if let Some(origin) = ui.input(|i| i.pointer.press_origin()).or(pointer) {
-                let world = self.camera.to_world(rect, origin);
-                let start_pixel = item.image_pixel(world).unwrap_or_default();
-                let sides = self.crop_handle_at(&item, origin);
-                if sides.is_some() || item.contains(world) {
-                    self.gesture = Gesture::Crop { item: item.clone(), start_pixel, start_crop: crop, sides };
-                } else {
-                    self.finish_crop();
-                }
+        if response.drag_started_by(PointerButton::Primary)
+            && let Some(origin) = ui.input(|i| i.pointer.press_origin()).or(pointer)
+        {
+            let world = self.camera.to_world(rect, origin);
+            let start_pixel = item.image_pixel(world).unwrap_or_default();
+            let sides = self.crop_handle_at(&item, origin);
+            if sides.is_some() || item.contains(world) {
+                self.gesture = Gesture::Crop { item: item.clone(), start_pixel, start_crop: crop, sides };
+            } else {
+                self.finish_crop();
             }
         }
-        if response.dragged_by(PointerButton::Primary) {
-            if let (Some(p), Gesture::Crop { item: start_item, start_pixel, start_crop, sides }) =
+        if response.dragged_by(PointerButton::Primary)
+            && let (Some(p), Gesture::Crop { item: start_item, start_pixel, start_crop, sides }) =
                 (ui.input(|i| i.pointer.interact_pos()), &self.gesture)
-            {
-                // Measure against the item as it was when the drag began: its pixels stay put.
-                let pixel = start_item.image_pixel(self.camera.to_world(rect, p)).unwrap_or_default();
-                let new_crop = match sides {
-                    Some(sides) => moved_crop(*start_crop, *sides, pixel),
-                    // Dragging inside slides the image under the frame, so the crop moves the other way.
-                    None => panned_crop(*start_crop, *start_pixel - pixel, image_size),
-                };
-                let new_crop = Rect::from_min_max(new_crop.min.round(), new_crop.max.round());
-                if sides.is_some() {
-                    self.scene.set_crop(id, new_crop, image_size);
-                } else {
-                    // Panning keeps the frame where it is on the board.
-                    let mut moved = start_item.clone();
-                    if let ItemKind::Image { crop, .. } = &mut moved.kind {
-                        *crop = new_crop.intersect(Rect::from_min_size(Pos2::ZERO, image_size));
-                    }
-                    if let Some(slot) = self.scene.items.iter_mut().find(|i| i.id == id) {
-                        *slot = moved;
-                    }
+        {
+            // Measure against the item as it was when the drag began: its pixels stay put.
+            let pixel = start_item.image_pixel(self.camera.to_world(rect, p)).unwrap_or_default();
+            let new_crop = match sides {
+                Some(sides) => moved_crop(*start_crop, *sides, pixel),
+                // Dragging inside slides the image under the frame, so the crop moves the other way.
+                None => panned_crop(*start_crop, *start_pixel - pixel, image_size),
+            };
+            let new_crop = Rect::from_min_max(new_crop.min.round(), new_crop.max.round());
+            if sides.is_some() {
+                self.scene.set_crop(id, new_crop, image_size);
+            } else {
+                // Panning keeps the frame where it is on the board.
+                let mut moved = start_item.clone();
+                if let ItemKind::Image { crop, .. } = &mut moved.kind {
+                    *crop = new_crop.intersect(Rect::from_min_size(Pos2::ZERO, image_size));
                 }
-                ui.ctx().set_cursor_icon(if sides.is_some() { CursorIcon::Crosshair } else { CursorIcon::Grabbing });
+                if let Some(slot) = self.scene.items.iter_mut().find(|i| i.id == id) {
+                    *slot = moved;
+                }
             }
+            ui.ctx().set_cursor_icon(if sides.is_some() { CursorIcon::Crosshair } else { CursorIcon::Grabbing });
         }
         if response.drag_stopped() && matches!(self.gesture, Gesture::Crop { .. }) {
             self.gesture = Gesture::None;
         }
-        if response.clicked() {
-            if let Some(p) = pointer {
-                if !item.contains(self.camera.to_world(rect, p)) {
-                    self.finish_crop();
-                }
-            }
+        if response.clicked()
+            && let Some(p) = pointer
+            && !item.contains(self.camera.to_world(rect, p))
+        {
+            self.finish_crop();
         }
     }
 
@@ -609,18 +608,18 @@ impl Editor {
         let world = |editor: &Self, p: Pos2| editor.camera.to_world(rect, p);
         let adding = modifiers.ctrl || modifiers.shift;
 
-        if response.clicked_by(PointerButton::Primary) {
-            if let Some(p) = pointer {
-                match (self.scene.hit(world(self, p)), adding) {
-                    (Some(id), true) => {
-                        if !self.selection.remove(&id) {
-                            self.selection.insert(id);
-                        }
+        if response.clicked_by(PointerButton::Primary)
+            && let Some(p) = pointer
+        {
+            match (self.scene.hit(world(self, p)), adding) {
+                (Some(id), true) => {
+                    if !self.selection.remove(&id) {
+                        self.selection.insert(id);
                     }
-                    (Some(id), false) => self.selection = BTreeSet::from([id]),
-                    (None, false) => self.selection.clear(),
-                    (None, true) => {}
                 }
+                (Some(id), false) => self.selection = BTreeSet::from([id]),
+                (None, false) => self.selection.clear(),
+                (None, true) => {}
             }
         }
 
@@ -657,55 +656,55 @@ impl Editor {
             }
         }
 
-        if response.dragged_by(PointerButton::Primary) {
-            if let Some(p) = ui.input(|i| i.pointer.interact_pos()) {
-                let now = world(self, p);
-                let selection = self.selection.clone();
-                match &self.gesture {
-                    Gesture::Move { start, before } => {
-                        let mut delta = now - *start;
-                        if modifiers.shift {
-                            if delta.x.abs() > delta.y.abs() {
-                                delta.y = 0.0;
-                            } else {
-                                delta.x = 0.0;
-                            }
+        if response.dragged_by(PointerButton::Primary)
+            && let Some(p) = ui.input(|i| i.pointer.interact_pos())
+        {
+            let now = world(self, p);
+            let selection = self.selection.clone();
+            match &self.gesture {
+                Gesture::Move { start, before } => {
+                    let mut delta = now - *start;
+                    if modifiers.shift {
+                        if delta.x.abs() > delta.y.abs() {
+                            delta.y = 0.0;
+                        } else {
+                            delta.x = 0.0;
                         }
-                        let mut scene = before.clone();
-                        scene.translate(&selection, delta);
-                        self.scene = scene;
-                        ui.ctx().set_cursor_icon(CursorIcon::Grabbing);
                     }
-                    Gesture::Scale { anchor, start, before } => {
-                        let d = *start - *anchor;
-                        let factor = ((now - *anchor).dot(d) / d.length_sq().max(f32::EPSILON)).max(0.01);
-                        let mut scene = before.clone();
-                        scene.scale_about(&selection, *anchor, factor);
-                        self.scene = scene;
-                    }
-                    Gesture::Rotate { pivot, start_angle, before } => {
-                        let v = now - *pivot;
-                        let mut angle = wrap_angle(v.y.atan2(v.x) - start_angle);
-                        if modifiers.shift {
-                            // Snap the result to 45° steps (the item's own angle when there is one).
-                            let base = match selection.first() {
-                                Some(id) if selection.len() == 1 => before.get(*id).map_or(0.0, |i| i.rotation),
-                                _ => 0.0,
-                            };
-                            angle = ((base + angle) / FRAC_PI_4).round() * FRAC_PI_4 - base;
-                        }
-                        let mut scene = before.clone();
-                        scene.rotate_about(&selection, *pivot, angle);
-                        self.scene = scene;
-                    }
-                    Gesture::Marquee { start, base } => {
-                        let area = Rect::from_two_pos(*start, now);
-                        let mut selection = base.clone();
-                        selection.extend(self.scene.touching(area));
-                        self.selection = selection;
-                    }
-                    Gesture::Crop { .. } | Gesture::None => {}
+                    let mut scene = before.clone();
+                    scene.translate(&selection, delta);
+                    self.scene = scene;
+                    ui.ctx().set_cursor_icon(CursorIcon::Grabbing);
                 }
+                Gesture::Scale { anchor, start, before } => {
+                    let d = *start - *anchor;
+                    let factor = ((now - *anchor).dot(d) / d.length_sq().max(f32::EPSILON)).max(0.01);
+                    let mut scene = before.clone();
+                    scene.scale_about(&selection, *anchor, factor);
+                    self.scene = scene;
+                }
+                Gesture::Rotate { pivot, start_angle, before } => {
+                    let v = now - *pivot;
+                    let mut angle = wrap_angle(v.y.atan2(v.x) - start_angle);
+                    if modifiers.shift {
+                        // Snap the result to 45° steps (the item's own angle when there is one).
+                        let base = match selection.first() {
+                            Some(id) if selection.len() == 1 => before.get(*id).map_or(0.0, |i| i.rotation),
+                            _ => 0.0,
+                        };
+                        angle = ((base + angle) / FRAC_PI_4).round() * FRAC_PI_4 - base;
+                    }
+                    let mut scene = before.clone();
+                    scene.rotate_about(&selection, *pivot, angle);
+                    self.scene = scene;
+                }
+                Gesture::Marquee { start, base } => {
+                    let area = Rect::from_two_pos(*start, now);
+                    let mut selection = base.clone();
+                    selection.extend(self.scene.touching(area));
+                    self.selection = selection;
+                }
+                Gesture::Crop { .. } | Gesture::None => {}
             }
         }
 
@@ -841,13 +840,12 @@ impl Editor {
 
         // Outlines: the hovered item, the selected ones, and the frame with its handles.
         let busy = !matches!(self.gesture, Gesture::None);
-        if let (Some(p), false, None) = (pointer, busy, cropping) {
-            if let Some(item) = self.scene.hit(camera.to_world(rect, p)).and_then(|id| self.scene.get(id)) {
-                if !self.selection.contains(&item.id) {
-                    let corners = item.corners().map(screen);
-                    painter.add(Shape::closed_line(corners.to_vec(), Stroke::new(1.0, ACCENT.gamma_multiply(0.6))));
-                }
-            }
+        if let (Some(p), false, None) = (pointer, busy, cropping)
+            && let Some(item) = self.scene.hit(camera.to_world(rect, p)).and_then(|id| self.scene.get(id))
+            && !self.selection.contains(&item.id)
+        {
+            let corners = item.corners().map(screen);
+            painter.add(Shape::closed_line(corners.to_vec(), Stroke::new(1.0, ACCENT.gamma_multiply(0.6))));
         }
         if let Some(item) = cropping.and_then(|id| self.scene.get(id)) {
             // The crop frame and its eight handles.

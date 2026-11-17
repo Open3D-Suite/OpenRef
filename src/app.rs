@@ -666,17 +666,17 @@ impl OpenRefApp {
             self.say(ctx, "The clipboard is not available");
             return;
         };
-        if let Ok(files) = clipboard.get().file_list() {
-            if !files.is_empty() {
-                let boards: Vec<&PathBuf> = files.iter().filter(|f| is_board(f)).collect();
-                if let (Some(board), true) = (boards.first(), files.len() == 1) {
-                    let board = (*board).clone();
-                    self.ask_then(Then::Open(Some(board)));
-                    return;
-                }
-                self.import_paths(ctx, &files, at);
+        if let Ok(files) = clipboard.get().file_list()
+            && !files.is_empty()
+        {
+            let boards: Vec<&PathBuf> = files.iter().filter(|f| is_board(f)).collect();
+            if let (Some(board), true) = (boards.first(), files.len() == 1) {
+                let board = (*board).clone();
+                self.ask_then(Then::Open(Some(board)));
                 return;
             }
+            self.import_paths(ctx, &files, at);
+            return;
         }
         if let Ok(image) = clipboard.get_image() {
             match Source::from_rgba(image.width as u32, image.height as u32, &image.bytes, tr(lang, "Pasted image")) {
@@ -845,10 +845,10 @@ impl OpenRefApp {
                 if input.consume_shortcut(&KeyboardShortcut::new(Modifiers::CTRL, Key::X)) {
                     input.events.push(egui::Event::Cut);
                 }
-                if input.consume_shortcut(&KeyboardShortcut::new(Modifiers::CTRL, Key::V)) {
-                    if let Some(text) = clipboard_text {
-                        input.events.push(egui::Event::Paste(text.replace("\r\n", "\n")));
-                    }
+                if input.consume_shortcut(&KeyboardShortcut::new(Modifiers::CTRL, Key::V))
+                    && let Some(text) = clipboard_text
+                {
+                    input.events.push(egui::Event::Paste(text.replace("\r\n", "\n")));
                 }
             });
             return;
@@ -883,11 +883,11 @@ impl OpenRefApp {
         let pointer = ctx.input(|i| i.pointer.hover_pos());
         let at = self.editor.drop_point(pointer);
         let paths: Vec<PathBuf> = dropped.iter().map(|f| f.path().to_path_buf()).collect();
-        if let [board] = paths.as_slice() {
-            if is_board(board) {
-                self.ask_then(Then::Open(Some(board.clone())));
-                return;
-            }
+        if let [board] = paths.as_slice()
+            && is_board(board)
+        {
+            self.ask_then(Then::Open(Some(board.clone())));
+            return;
         }
         if let Some(first) = paths.first() {
             self.remember_folder(first);
@@ -1140,15 +1140,15 @@ impl eframe::App for OpenRefApp {
         self.update_title(ctx);
 
         // A finished board picture.
-        if let Some((path, rx)) = &self.exporting {
-            if let Ok(result) = rx.try_recv() {
-                let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-                match result {
-                    Ok(()) => self.say_with(ctx, "Exported {name}", &[("name", &name)]),
-                    Err(error) => self.say_with(ctx, "Could not export {name}: {error}", &[("name", &name), ("error", &error)]),
-                }
-                self.exporting = None;
+        if let Some((path, rx)) = &self.exporting
+            && let Ok(result) = rx.try_recv()
+        {
+            let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            match result {
+                Ok(()) => self.say_with(ctx, "Exported {name}", &[("name", &name)]),
+                Err(error) => self.say_with(ctx, "Could not export {name}: {error}", &[("name", &name), ("error", &error)]),
             }
+            self.exporting = None;
         }
         // Autosave now and then while there are unsaved changes.
         let now = ctx.input(|i| i.time);
@@ -1169,16 +1169,15 @@ impl eframe::App for OpenRefApp {
         if self.click_through.is_some() {
             crate::window::click_through_badge(ui, self.settings.lang);
         }
-        if self.editor.locked {
-            if let Some(picked) = crate::window::color_picker(ui) {
-                if ui.input(|i| i.pointer.primary_released()) {
-                    let hex = platform::describe(picked.rgb).hex;
-                    ui.ctx().copy_text(hex.clone());
-                    let ctx = ui.ctx().clone();
-                    self.say_with(&ctx, "{hex} copied", &[("hex", &hex)]);
-                    self.picking = false;
-                }
-            }
+        if self.editor.locked
+            && let Some(picked) = crate::window::color_picker(ui)
+            && ui.input(|i| i.pointer.primary_released())
+        {
+            let hex = platform::describe(picked.rgb).hex;
+            ui.ctx().copy_text(hex.clone());
+            let ctx = ui.ctx().clone();
+            self.say_with(&ctx, "{hex} copied", &[("hex", &hex)]);
+            self.picking = false;
         }
 
         // Files from the command line, once the board area is known.
