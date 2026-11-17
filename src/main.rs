@@ -3,7 +3,9 @@
 #![windows_subsystem = "windows"]
 
 /// Connects the output to the terminal the app was started from, if there is one.
+// `unsafe` is allowed here because this function calls Windows itself (AttachConsole).
 #[cfg(windows)]
+#[allow(unsafe_code)]
 fn attach_console() {
     #[link(name = "kernel32")]
     unsafe extern "system" {

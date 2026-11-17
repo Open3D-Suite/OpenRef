@@ -236,8 +236,11 @@ impl OpenRefApp {
             .as_ref()
             .map(|gl| {
                 use eframe::glow::HasContext;
+                // The one `unsafe` outside the Windows calls: OpenGL has no safe way to ask for this number.
                 // SAFETY: a plain query on the context eframe just made current.
-                unsafe { gl.get_parameter_i32(eframe::glow::MAX_TEXTURE_SIZE) }.max(1024) as u32
+                #[allow(unsafe_code)]
+                let side = unsafe { gl.get_parameter_i32(eframe::glow::MAX_TEXTURE_SIZE) };
+                side.max(1024) as u32
             })
             .unwrap_or(8192)
             .min(8192);
