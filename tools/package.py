@@ -5,10 +5,11 @@
     python -I tools/package.py --no-test  skip the tests
 
 Writes dist/openref-<version>-windows-x64.zip (OpenRef.exe, README.md, LICENSE, NOTICE,
-LICENSES/, CHANGELOG.md and THIRD-PARTY-LICENSES.txt) and dist/SHA256SUMS.txt. Refuses to build when the version in Cargo.toml
-is not the one the README and the changelog talk about, or when a library has a licence that
-cannot be distributed under GPL-3.0-or-later. The release build keeps the folders of the machine
-it runs on out of the program, and the program is checked for them before it is packed.
+LICENSES/, CHANGELOG.md and THIRD-PARTY-LICENSES.txt) and dist/SHA256SUMS.txt. Refuses to build
+when the version in Cargo.toml is not the one the README and the changelog talk about, or when a
+library has a licence that cannot be distributed under GPL-3.0-or-later. The release build keeps
+the folders of the machine it runs on out of the program, and the program is checked for them
+before it is packed.
 
 Only the standard library is used, so any Python 3.9+ works.
 """
@@ -70,7 +71,7 @@ def cargo():
 
 def run(*args, env=None):
     print(">", " ".join(str(a) for a in args), flush=True)
-    result = subprocess.run([str(a) for a in args], cwd=ROOT, env=env)
+    result = subprocess.run([str(a) for a in args], cwd=ROOT, env=env)  # noqa: S603 - only called with cargo and fixed arguments
     if result.returncode != 0:
         fail(f"{args[1]} failed")
 
@@ -100,7 +101,7 @@ def licence_terms(expression):
 
 def third_party(ver):
     """Checks every library's licence and gathers their licence texts in one file."""
-    out = subprocess.run(
+    out = subprocess.run(  # noqa: S603 - cargo with fixed arguments
         [cargo(), "metadata", "--format-version", "1", "--filter-platform", TARGET, "--locked"],
         cwd=ROOT,
         capture_output=True,
@@ -156,7 +157,7 @@ def third_party(ver):
 
 
 def target_dir():
-    out = subprocess.run(
+    out = subprocess.run(  # noqa: S603 - cargo with fixed arguments
         [cargo(), "metadata", "--format-version", "1", "--no-deps"],
         cwd=ROOT,
         capture_output=True,
@@ -214,7 +215,7 @@ def main():
     if not exe.exists():
         fail(f"{exe} was not built")
     check_no_local_paths(exe)
-    said = subprocess.run([str(exe), "--version"], capture_output=True, text=True).stdout.strip()
+    said = subprocess.run([str(exe), "--version"], capture_output=True, text=True).stdout.strip()  # noqa: S603 - the program just built
     if said != f"OpenRef {ver}":
         fail(f"the executable says '{said}', not 'OpenRef {ver}'")
 
