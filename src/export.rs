@@ -185,7 +185,7 @@ pub fn render_board(job: BoardJob) -> Result<Vec<u8>, String> {
     let mut canvas: Vec<[f32; 4]> = vec![back; w * h];
     for mesh in &job.meshes {
         let Some(texture) = textures.get(&mesh.texture_id) else { continue };
-        for tri in mesh.indices.chunks_exact(3) {
+        for tri in mesh.indices.as_chunks::<3>().0 {
             let v = [mesh.vertices[tri[0] as usize], mesh.vertices[tri[1] as usize], mesh.vertices[tri[2] as usize]];
             fill_triangle(&mut canvas, w, h, v, texture);
         }
