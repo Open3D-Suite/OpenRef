@@ -8,13 +8,33 @@
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 
+/// The language shown. Which one is decided by the language every Open3D app shares, or by the
+/// language of Windows when there is no preference (`app.rs`, `open3d_settings`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Lang {
-    /// The default, whatever the language of Windows.
+    /// What settings saved before there was a language field read as.
     #[default]
     En,
     Es,
+}
+
+impl From<crate::open3d_settings::Language> for Lang {
+    fn from(language: crate::open3d_settings::Language) -> Self {
+        match language {
+            crate::open3d_settings::Language::English => Lang::En,
+            crate::open3d_settings::Language::Spanish => Lang::Es,
+        }
+    }
+}
+
+impl From<Lang> for crate::open3d_settings::Language {
+    fn from(lang: Lang) -> Self {
+        match lang {
+            Lang::En => crate::open3d_settings::Language::English,
+            Lang::Es => crate::open3d_settings::Language::Spanish,
+        }
+    }
 }
 
 /// The text in the language (English when a translation is missing).
@@ -171,6 +191,10 @@ const SPANISH: &[(&str, &str)] = &[
     ("Could not export {name}: {error}", "No se pudo exportar {name}: {error}"),
     ("Board recovered: save it to keep it", "Tablero recuperado: guárdalo para conservarlo"),
     ("Could not recover the board: {error}", "No se pudo recuperar el tablero: {error}"),
+    (
+        "The language could not be saved for the other Open3D apps: {error}",
+        "No se pudo guardar el idioma para las demás aplicaciones de Open3D: {error}",
+    ),
     ("{hex} copied", "{hex} copiado"),
     // On the board.
     ("Cannot show this image", "No se puede mostrar esta imagen"),

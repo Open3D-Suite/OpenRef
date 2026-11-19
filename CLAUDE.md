@@ -12,8 +12,9 @@ as a change that makes it old.
 - `src/app.rs`: the window's actions, menus and shortcuts. `src/canvas.rs`: gestures, selection, drawing.
 - `src/board_file.rs`: the `.oref` file. `src/recovery.rs`: autosave. `src/export.rs`: exporting a board.
 - `src/images.rs`: loading images and their textures. `src/history.rs`: undo and redo.
-- `src/platform.rs`: every call to Windows. `src/window.rs`: the frameless window. `src/text.rs`: the
-  English and Spanish texts.
+- `src/platform.rs`: every call to Windows but one. `src/window.rs`: the frameless window. `src/text.rs`:
+  the English and Spanish texts. `src/open3d_settings.rs`: the language every Open3D app shares, with the
+  cases its tests read (`src/open3d_settings_cases.txt`).
 - `tools/make_icon.ps1`: draws the icons in `assets/`.
 
 ## Build and check
@@ -26,13 +27,14 @@ as a change that makes it old.
     line; `Cargo.toml` has the common lints; no file holds a path of somebody's computer
   - `cargo fmt --all --check`
   - `cargo clippy --workspace --all-targets --locked -- -D warnings`
-  - `cargo test --workspace --locked` (50 tests; none needs the network or another program)
+  - `cargo test --workspace --locked` (62 tests; none needs the network or another program)
   - `ruff format --check .` and `ruff check .`, for the Python in `tools/`
 - CI: `.github/workflows/check.yml` runs `tools\check.ps1`, without `-Full`, on every push and pull request
   to `main`, on GitHub's Windows runner with Python 3.14.
 - `.editorconfig`, `.gitattributes`, `rustfmt.toml`, `clippy.toml`, `ruff.toml`, `LICENSE`,
   `tools/check.ps1`, `tools/repo.py`, `tools/repo_package.py` and `tools/repo_release.py` are the same in
-  every Open3D repo. Do not change them here.
+  every Open3D repo, and `src/open3d_settings.rs` with `src/open3d_settings_cases.txt` in every repo that
+  has them. Do not change them here.
 
 ## Version and release
 
@@ -57,10 +59,16 @@ as a change that makes it old.
 - The OpenGL renderer (`glow`) only: the transparent window and the see-through mode need it.
 - Every text of the interface is written with `tr`, `tf`, `t` or `say`, with the English text as its key.
   A test scans the sources and fails when a text has no Spanish.
+- The language is the one every Open3D app shares, in `settings.json` (`%APPDATA%\Open3D`, or the folder
+  `OPEN3D_SETTINGS_DIR` names). At start `Settings::take_shared_language` takes its preference; with none,
+  a Spanish chosen here before is carried over once (`language_shared`), and otherwise the language of
+  Windows decides: Spanish if it is Spanish, else English. A saved English is not carried over: it cannot
+  be told apart from the old default. The Language menu writes the file and changes at once.
 - Shortcuts live in the `SHORTCUTS` table of `src/app.rs`, which also builds the menu. Avoid the `-`, `+`
   and `=` keys: they are awkward on Spanish keyboards.
 - `unsafe` is denied. It is allowed by name, with its reason, only where Windows or the graphics card is
-  called: the `platform` module, `attach_console` and one OpenGL query in `src/app.rs`.
+  called: the `platform` module, `attach_console`, `user_interface_language` in `src/open3d_settings.rs`
+  and one OpenGL query in `src/app.rs`.
 - A `.oref` board is a zip with `board.json` (format `openref-board`, version 1) and `images/`. A file
   with a newer version is refused, never guessed at.
 - Code from BeeRef (GPL-3.0-or-later) may be ported, with credit in `NOTICE`. Nothing from PureRef, its

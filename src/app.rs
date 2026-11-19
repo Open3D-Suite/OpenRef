@@ -8,7 +8,7 @@ use crate::images::{self, ImageStore, Source};
 use crate::platform;
 use crate::scene::{Align, ItemKind, MatchSize, Scene};
 use crate::text::{Lang, tf, tr};
-use crate::{export, recovery};
+use crate::{export, open3d_settings, recovery};
 use eframe::egui::{self, Color32, Key, KeyboardShortcut, Modifiers, Vec2};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -193,13 +193,50 @@ struct Settings {
     /// How much of the window shows (1 = opaque).
     see_through: f32,
     transparent_background: bool,
-    /// English unless the user chose Spanish (not taken from Windows).
+    /// The language shown. The language every Open3D app shares is the source (`open3d_settings`):
+    /// at start this takes its value, or the language of Windows when there is no preference
+    /// ([`Settings::take_shared_language`]), and the Language menu writes it there.
     lang: Lang,
+    /// Spanish chosen here before has been handed to the shared file (or there was nothing to hand
+    /// over), so it is never carried over again.
+    language_shared: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { always_on_top: false, folder: None, frameless: false, see_through: 1.0, transparent_background: false, lang: Lang::En }
+        Self {
+            always_on_top: false,
+            folder: None,
+            frameless: false,
+            see_through: 1.0,
+            transparent_background: false,
+            lang: Lang::En,
+            language_shared: false,
+        }
+    }
+}
+
+impl Settings {
+    /// Takes the language every Open3D app shares in at start, from `settings.json` in `dir`
+    /// (D-051): its preference, or with none the language of Windows, `windows` (D-052). Spanish
+    /// chosen here before is written there once (D-048); English is not, as it cannot be told
+    /// apart from the old default. A write that fails keeps Spanish, is tried again at the next
+    /// start, and its error is returned.
+    fn take_shared_language(&mut self, dir: Option<&Path>, windows: Lang) -> Result<(), String> {
+        if let Some(shared) = dir.and_then(open3d_settings::read_language) {
+            self.lang = shared.into();
+            self.language_shared = true;
+            return Ok(());
+        }
+        if !self.language_shared && self.lang == Lang::Es {
+            let dir = dir.ok_or("no folder for the language shared by the Open3D apps")?;
+            open3d_settings::write_language(dir, Some(Lang::Es.into()))?;
+            self.language_shared = true;
+            return Ok(());
+        }
+        self.language_shared = true;
+        self.lang = windows;
+        Ok(())
     }
 }
 
@@ -227,6 +264,8 @@ pub struct OpenRefApp {
     offer: Option<recovery::Orphan>,
     /// A board picture being made on another thread: where it goes, and the answer.
     exporting: Option<(PathBuf, std::sync::mpsc::Receiver<Result<(), String>>)>,
+    /// The folder of `settings.json`, the language every Open3D app shares.
+    shared_dir: Option<PathBuf>,
 }
 
 impl OpenRefApp {
@@ -244,7 +283,9 @@ impl OpenRefApp {
             })
             .unwrap_or(8192)
             .min(8192);
-        let settings: Settings = cc.storage.and_then(|s| eframe::get_value(s, "settings")).unwrap_or_default();
+        let mut settings: Settings = cc.storage.and_then(|s| eframe::get_value(s, "settings")).unwrap_or_default();
+        let shared_dir = open3d_settings::settings_dir();
+        let carried = settings.take_shared_language(shared_dir.as_deref(), open3d_settings::windows_language().into());
         if settings.always_on_top {
             cc.egui_ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(egui::WindowLevel::AlwaysOnTop));
         }
@@ -255,7 +296,7 @@ impl OpenRefApp {
         editor.see_through = settings.see_through.clamp(0.1, 1.0);
         editor.transparent_background = settings.transparent_background;
         editor.lang = settings.lang;
-        Self {
+        let mut app = Self {
             editor,
             path: None,
             settings,
@@ -271,6 +312,21 @@ impl OpenRefApp {
             autosave: recovery::Autosave::new(recovery::folder()),
             offer: recovery::folder().and_then(|dir| recovery::find_orphan(&dir, platform::process_alive)),
             exporting: None,
+            shared_dir,
+        };
+        if let Err(error) = carried {
+            app.say_with(&cc.egui_ctx, "The language could not be saved for the other Open3D apps: {error}", &[("error", &error)]);
+        }
+        app
+    }
+
+    /// Keeps the language just chosen for every Open3D app (D-056); they take it the next time they
+    /// start (D-057). A write that fails is said in a notice.
+    fn share_language(&mut self, ctx: &egui::Context) {
+        let Some(dir) = self.shared_dir.clone() else { return };
+        match open3d_settings::write_language(&dir, Some(self.settings.lang.into())) {
+            Ok(()) => self.settings.language_shared = true,
+            Err(error) => self.say_with(ctx, "The language could not be saved for the other Open3D apps: {error}", &[("error", &error)]),
         }
     }
 
@@ -598,6 +654,7 @@ impl OpenRefApp {
                 self.settings.lang = new;
                 self.editor.lang = new;
                 self.title.clear();
+                self.share_language(ctx);
             }
             Action::BringToFront => editor.change(|scene, selection| scene.restack(selection, true)),
             Action::SendToBack => editor.change(|scene, selection| scene.restack(selection, false)),
@@ -1232,4 +1289,93 @@ impl eframe::App for OpenRefApp {
 
 fn is_board(path: &Path) -> bool {
     path.extension().is_some_and(|e| e.eq_ignore_ascii_case(EXTENSION))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A folder of its own for the shared `settings.json`, never the real `%APPDATA%\Open3D`.
+    struct Shared(PathBuf);
+
+    impl Shared {
+        fn new(name: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!("openref-shared-{name}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            Self(dir)
+        }
+        fn holding(name: &str, json: &str) -> Self {
+            let shared = Self::new(name);
+            std::fs::create_dir_all(&shared.0).unwrap();
+            std::fs::write(shared.0.join(open3d_settings::FILE_NAME), json).unwrap();
+            shared
+        }
+    }
+
+    impl Drop for Shared {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn with(lang: Lang, language_shared: bool) -> Settings {
+        Settings { lang, language_shared, ..Settings::default() }
+    }
+
+    #[test]
+    fn the_shared_language_wins_over_openrefs_own_and_windows() {
+        let shared = Shared::holding("wins", r#"{"language":"en","theme":"dark"}"#);
+        for own in [Lang::En, Lang::Es] {
+            let mut settings = with(own, false);
+            assert_eq!(settings.take_shared_language(Some(&shared.0), Lang::Es), Ok(()));
+            assert_eq!((settings.lang, settings.language_shared), (Lang::En, true), "{own:?}");
+        }
+        let file = std::fs::read_to_string(shared.0.join(open3d_settings::FILE_NAME)).unwrap();
+        assert_eq!(file, r#"{"language":"en","theme":"dark"}"#, "reading writes nothing");
+    }
+
+    #[test]
+    fn with_no_preference_windows_decides_where_nothing_was_chosen() {
+        // A person who never chose: English was only the default, and is not carried over.
+        for windows in [Lang::En, Lang::Es] {
+            let shared = Shared::new("windows");
+            let mut settings = with(Lang::En, false);
+            assert_eq!(settings.take_shared_language(Some(&shared.0), windows), Ok(()));
+            assert_eq!((settings.lang, settings.language_shared), (windows, true));
+            assert!(!shared.0.exists(), "nothing is written");
+        }
+    }
+
+    #[test]
+    fn spanish_chosen_here_is_carried_over_once() {
+        let shared = Shared::new("carried");
+        let mut settings = with(Lang::Es, false);
+        assert_eq!(settings.take_shared_language(Some(&shared.0), Lang::En), Ok(()));
+        assert_eq!((settings.lang, settings.language_shared), (Lang::Es, true));
+        assert_eq!(open3d_settings::read_language(&shared.0), Some(open3d_settings::Language::Spanish));
+        // Taken out later (Auto in the launcher): OpenRef's copy is not put back.
+        assert_eq!(open3d_settings::write_language(&shared.0, None), Ok(()));
+        assert_eq!(settings.take_shared_language(Some(&shared.0), Lang::En), Ok(()));
+        assert_eq!((settings.lang, settings.language_shared), (Lang::En, true));
+        assert_eq!(open3d_settings::read_language(&shared.0), None);
+    }
+
+    #[test]
+    fn a_carry_over_that_fails_keeps_spanish_and_says_why() {
+        let shared = Shared::new("blocked");
+        // The folder is a file: nothing can be written in it.
+        std::fs::write(&shared.0, b"in the way").unwrap();
+        let mut settings = with(Lang::Es, false);
+        assert!(settings.take_shared_language(Some(&shared.0), Lang::En).is_err());
+        assert_eq!((settings.lang, settings.language_shared), (Lang::Es, false));
+        std::fs::remove_file(&shared.0).unwrap();
+        assert_eq!(settings.take_shared_language(Some(&shared.0), Lang::En), Ok(()));
+        assert_eq!(open3d_settings::read_language(&shared.0), Some(open3d_settings::Language::Spanish));
+    }
+
+    #[test]
+    fn settings_saved_before_have_not_handed_their_language_over() {
+        let settings: Settings = serde_json::from_str(r#"{"lang":"es"}"#).unwrap();
+        assert_eq!((settings.lang, settings.language_shared), (Lang::Es, false));
+    }
 }

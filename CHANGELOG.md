@@ -2,6 +2,15 @@
 
 What changed for users in each version of OpenRef, newest first.
 
+## In development
+
+- **The same language as the Open3D launcher and the other Open3D apps.** Choosing English or Español in
+  the Language menu now changes it for the launcher and the apps that share it too, the next time they
+  start; a language chosen there shows here the next time OpenRef starts.
+- **If you never chose a language, OpenRef now follows Windows:** Spanish if Windows is in Spanish, English
+  otherwise. Before, it always started in English. If you had chosen Spanish, it stays. If you had chosen
+  English on a Windows in Spanish, choose English once more.
+
 ## 0.1.1 — 16 November 2026
 
 - **The program no longer names folders of the computer it was built on.** Earlier builds
