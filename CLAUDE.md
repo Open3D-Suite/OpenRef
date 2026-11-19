@@ -14,7 +14,8 @@ as a change that makes it old.
 - `src/images.rs`: loading images and their textures. `src/history.rs`: undo and redo.
 - `src/platform.rs`: every call to Windows. `src/window.rs`: the frameless window. `src/text.rs`: the
   English and Spanish texts.
-- `tools/package.py`: the packager. `tools/make_icon.ps1`: draws the icons in `assets/`.
+- `tools/package.py`: the packager from before the common one, which now does its work; it stays until
+  it is deleted. `tools/make_icon.ps1`: draws the icons in `assets/`.
 
 ## Build and check
 
@@ -29,16 +30,24 @@ as a change that makes it old.
   - `cargo test --workspace --locked` (50 tests; none needs the network or another program)
   - `ruff format --check .` and `ruff check .`, for the Python in `tools/`
 - `.editorconfig`, `.gitattributes`, `rustfmt.toml`, `clippy.toml`, `ruff.toml`, `LICENSE`,
-  `tools/check.ps1` and `tools/repo.py` are the same in every Open3D repo. Do not change them here.
+  `tools/check.ps1`, `tools/repo.py`, `tools/repo_package.py` and `tools/repo_release.py` are the same in
+  every Open3D repo. Do not change them here.
 
 ## Version and release
 
-- The version is in `Cargo.toml` and nowhere else by hand, except the `**Version X.Y.Z**` line of the
-  README and the CHANGELOG. The packager refuses to go on if they disagree.
+- The version is in `Cargo.toml`. `python -I tools/repo.py version set X.Y.Z` writes it there, in
+  `Cargo.lock` and in the README's `**Version X.Y.Z**` line; `tools\check.ps1` fails if they disagree.
 - Changes a user can notice go into `CHANGELOG.md` under `## In development`, in the same commit.
-- `python -I tools/package.py` checks the licences of the dependencies, runs the tests, builds, and writes
-  `dist/openref-<version>-windows-x64.zip` and `dist/SHA256SUMS.txt`. It refuses an exe that still holds a
-  path of the computer that built it.
+- `python -I tools/repo.py package` makes the release package as the `[package]` table of
+  `tools/repo.toml` says: the version and its `## X.Y.Z` section in the CHANGELOG, the quick checks,
+  `cargo build --release --locked` without this computer's folders in the exe, the licences of the
+  dependencies in `THIRD-PARTY-LICENSES.txt`, then `dist/openref-<version>-windows-x64.zip` (`OpenRef.exe`,
+  README, LICENSE, NOTICE, CHANGELOG, `LICENSES/*.txt`) and `dist/SHA256SUMS.txt`. It refuses an exe that
+  holds a path of the computer that built it, or whose file version or `--version` is not the version.
+- `python -I tools/repo.py release X.Y.Z` turns `## In development` into `## X.Y.Z — <date>`, sets the
+  version, commits `Release X.Y.Z`, packages, tags `vX.Y.Z` and prints the pushes to approve; run again
+  once they are done, it makes the GitHub release as a draft. It never pushes. `--dry-run` tries it all
+  and writes only to `dist/`.
 - The Open3D launcher needs `OpenRef.exe` at the root of the zip, with the release's version as its file
   version.
 
