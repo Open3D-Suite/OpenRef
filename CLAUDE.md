@@ -14,8 +14,7 @@ as a change that makes it old.
 - `src/images.rs`: loading images and their textures. `src/history.rs`: undo and redo.
 - `src/platform.rs`: every call to Windows. `src/window.rs`: the frameless window. `src/text.rs`: the
   English and Spanish texts.
-- `tools/package.py`: the packager from before the common one, which now does its work; it stays until
-  it is deleted. `tools/make_icon.ps1`: draws the icons in `assets/`.
+- `tools/make_icon.ps1`: draws the icons in `assets/`.
 
 ## Build and check
 
