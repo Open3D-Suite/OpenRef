@@ -6,10 +6,33 @@
     python -I tools/repo.py version             print the version
     python -I tools/repo.py version set X.Y.Z   write a new version into every place that holds it
 
-What is specific to the repository is in tools/repo.toml. This file is the same in every OPEN3D
-repository. Only the standard library is used; it needs Python 3.11 or newer.
+What is specific to the repository is in tools/repo.toml:
+
+    [version]           only where the repository has a version of its own
+      source            { file, pattern }: where the version lives; the first match is the version
+      places            a list of { file, pattern }: every match must repeat the version, or one
+                        number of it when the place adds part = "major", "minor" or "patch"
+      after_set         commands to run once "version set" has written every place
+    [[check]]           one for each check, in the order they run
+      name, run, full   its name, its command as a list, and full = true when only -Full runs it
+      files             names with wildcards, such as "*.cpp" or "core/*.h": the files of the
+                        repository that match are added to the command
+    [licence_header]
+      exclude           folders whose sources need no licence line
+    [private_data]
+      allow             a list of { pattern, reason }: what may stay, and why
+
+A pattern is a regular expression; "^" and "$" are the start and the end of a line, and a pattern
+of the version has one group. The first word of a command names its program: "python" (the one
+that runs this file, with -I), "3dsmax-python" (the one of 3ds Max, with -I), "3dsmaxbatch",
+"ruff", "clang-format", or any other that is on PATH or in cargo's folder.
+
+The checks built into this file look at every file that Git tracks or would track: a new file that
+is not ignored counts too. This file is the same in every OPEN3D repository. Only the standard
+library is used; it needs Python 3.11 or newer.
 """
 
+import fnmatch
 import importlib.util
 import os
 import re
@@ -25,10 +48,14 @@ SETTINGS = "tools/repo.toml"
 # The tables of the settings file and the keys of each.
 TABLES = {
     "version": {"source", "places", "after_set"},
-    "check": {"name", "run", "full"},
+    "check": {"name", "run", "full", "files"},
     "licence_header": {"exclude"},
     "private_data": {"allow"},
 }
+# The numbers of a version, by the name a place gives to the one it holds.
+PARTS = ("major", "minor", "patch")
+# The programs of 3ds Max a command may name, and where each is inside the folder of 3ds Max.
+MAX_PROGRAMS = {"3dsmax-python": "Python/python.exe", "3dsmaxbatch": "3dsmaxbatch.exe"}
 
 LICENCE_LINE = "SPDX-License-Identifier: GPL-3.0-or-later"
 SOURCES = {".rs", ".py", ".ps1", ".ms", ".mcr", ".c", ".h", ".cpp", ".hpp", ".js", ".css", ".html"}
@@ -81,14 +108,17 @@ def load_settings(repo):
             unknown = sorted(set(entry) - TABLES[table])
             if unknown:
                 raise Failure(f"{SETTINGS}: unknown key in [{table}]: {', '.join(unknown)}")
-    version = settings.get("version", {})
-    if "source" not in version:
-        raise Failure(f"{SETTINGS}: [version] needs a source")
-    for place in [version["source"], *version.get("places", [])]:
-        if set(place) != {"file", "pattern"}:
-            raise Failure(f"{SETTINGS}: a version place is a file and a pattern")
-        if pattern(place["pattern"]).groups != 1:
-            raise Failure(f"{SETTINGS}: the pattern {place['pattern']} needs exactly one group")
+    if "version" in settings:
+        version = settings["version"]
+        if set(version.get("source", {})) != {"file", "pattern"}:
+            raise Failure(f"{SETTINGS}: [version] needs a source, which is a file and a pattern")
+        for place in [version["source"], *version.get("places", [])]:
+            if not {"file", "pattern"} <= set(place) <= {"file", "pattern", "part"}:
+                raise Failure(f"{SETTINGS}: a version place is a file, a pattern and, for one number, a part")
+            if place.get("part", PARTS[0]) not in PARTS:
+                raise Failure(f'{SETTINGS}: the part of a version place is "major", "minor" or "patch"')
+            if pattern(place["pattern"]).groups != 1:
+                raise Failure(f"{SETTINGS}: the pattern {place['pattern']} needs exactly one group")
     for step in settings.get("check", []):
         if not step.get("name") or not step.get("run"):
             raise Failure(f"{SETTINGS}: a check needs a name and a run list")
@@ -111,21 +141,28 @@ def read_text(path):
     return path.read_bytes().decode("utf-8")
 
 
-def tracked_files(repo):
-    """The files Git tracks in the repository, as paths with forward slashes."""
+def repo_files(repo):
+    """The files of the repository that Git tracks or would track, as paths with forward slashes.
+
+    A new file that is not ignored counts, so a problem in it is seen before it is committed.
+    """
     git = shutil.which("git")
     if not git:
         raise Failure("git was not found")
-    done = subprocess.run([git, "ls-files", "-z"], cwd=repo, capture_output=True)  # noqa: S603 - git with fixed arguments
+    listing = [git, "ls-files", "-z", "--cached", "--others", "--exclude-standard"]
+    done = subprocess.run(listing, cwd=repo, capture_output=True)  # noqa: S603 - git with fixed arguments
     if done.returncode != 0:
         raise Failure("git ls-files failed: " + done.stderr.decode("utf-8", errors="replace").strip())
-    return [name for name in done.stdout.decode("utf-8").split("\0") if name and (repo / name).is_file()]
+    names = sorted(set(done.stdout.decode("utf-8").split("\0")) - {""})
+    return [name for name in names if (repo / name).is_file()]
 
 
 # ------------------------------------------------------------------------------------- the version
 
 
 def read_version(repo, settings):
+    if "version" not in settings:
+        raise Failure(f"this repository has no version: {SETTINGS} has no [version]")
     source = settings["version"]["source"]
     found = pattern(source["pattern"]).search(read_text(repo / source["file"]))
     if not found:
@@ -140,21 +177,38 @@ def version_step(repo, settings, _files):
     places = settings["version"].get("places", [])
     problems = []
     for place in places:
+        wanted = wanted_in(place, version)
         values = [found.group(1) for found in pattern(place["pattern"]).finditer(read_text(repo / place["file"]))]
         if not values:
             problems.append(f"{place['file']}: nothing matches the pattern {place['pattern']}")
-        problems += [f"{place['file']} says {value}; {source} says {version}" for value in values if value != version]
+        number = f" as its {place['part']} number" if "part" in place else ""
+        problems += [f"{place['file']} says {v}{number}; {source} says {version}" for v in values if v != wanted]
     return problems, "" if problems else f"{version} in {counted(len(places) + 1, 'place')}"
+
+
+def wanted_in(place, version):
+    """What a place must hold: the version, or the one number of it that the place names."""
+    if "part" not in place:
+        return version
+    numbers = version.split(".")
+    if len(numbers) != 3:
+        raise Failure(f"{place['file']} holds one number of the version, and {version} is not three numbers")
+    return numbers[PARTS.index(place["part"])]
 
 
 def set_version(repo, settings, version):
     """Writes the version into its source and into every other place, then runs what follows."""
+    if "version" not in settings:
+        raise Failure(f"this repository has no version: {SETTINGS} has no [version]")
     if not re.fullmatch(r"\d+\.\d+\.\d+", version):
         raise Failure(f"'{version}' is not a version: it is three numbers, like 1.2.3")
 
-    def put(found):
-        whole, start = found.group(0), found.start(0)
-        return whole[: found.start(1) - start] + version + whole[found.end(1) - start :]
+    def put(wanted):
+        def in_its_group(found):
+            whole, start = found.group(0), found.start(0)
+            return whole[: found.start(1) - start] + wanted + whole[found.end(1) - start :]
+
+        return in_its_group
 
     source = settings["version"]["source"]
     texts = {}
@@ -162,7 +216,7 @@ def set_version(repo, settings, version):
     for place, count in [(source, 1)] + [(place, 0) for place in settings["version"].get("places", [])]:
         path = repo / place["file"]
         text = texts[path] if path in texts else read_text(path)
-        texts[path], changed = pattern(place["pattern"]).subn(put, text, count=count)
+        texts[path], changed = pattern(place["pattern"]).subn(put(wanted_in(place, version)), text, count=count)
         if not changed:
             raise Failure(f"{place['file']}: nothing matches the pattern {place['pattern']}; nothing was written")
     for path, text in texts.items():
@@ -282,36 +336,82 @@ def command(args):
     name, rest = args[0], list(args[1:])
     if name == "python":
         return [sys.executable, "-I", *rest]
+    if name in MAX_PROGRAMS:
+        return [max_program(name), *(["-I"] if name == "3dsmax-python" else []), *rest]
     cargo_bin = Path(os.environ.get("CARGO_HOME") or Path.home() / ".cargo") / "bin"
     found = shutil.which(name) or shutil.which(name, path=str(cargo_bin))
     if found:
         return [found, *rest]
     if name == "ruff" and importlib.util.find_spec("ruff"):
         return [sys.executable, "-I", "-m", "ruff", *rest]
-    raise Failure(f"{name} was not found: it is not on PATH" + (" and not in this Python" if name == "ruff" else ""))
+    if name == "clang-format" and (found := visual_studio_clang_format()):
+        return [found, *rest]
+    elsewhere = {"ruff": " and not in this Python", "clang-format": " and Visual Studio has none"}
+    raise Failure(f"{name} was not found: it is not on PATH" + elsewhere.get(name, ""))
 
 
-def run_step(repo, args):
-    """Runs a command of the settings file in the repository's folder; its output is shown if it fails."""
+def max_program(name):
+    """A program of 3ds Max, in the folder its installer names in ADSK_3DSMAX_x64_<year>; the newest year."""
+    folders = {}
+    for variable, folder in os.environ.items():
+        year = re.fullmatch(r"(?i)ADSK_3DSMAX_x64_(\d{4})", variable)
+        if year and folder:
+            folders[int(year.group(1))] = folder
+    if not folders:
+        raise Failure(f"{name} was not found: no ADSK_3DSMAX_x64_<year> variable says where 3ds Max is")
+    program = Path(folders[max(folders)]) / MAX_PROGRAMS[name]
+    if not program.is_file():
+        raise Failure(f"{name} was not found: the folder of 3ds Max {max(folders)} has no {MAX_PROGRAMS[name]}")
+    return str(program)
+
+
+def visual_studio_clang_format():
+    """The clang-format that comes with Visual Studio, which its own vswhere.exe finds; None without one."""
+    vswhere = Path(os.environ.get("ProgramFiles(x86)", "")) / "Microsoft Visual Studio" / "Installer" / "vswhere.exe"
+    if not vswhere.is_file():
+        return None
+    asked = [str(vswhere), "-utf8", "-products", "*", "-property", "installationPath"]
+    done = subprocess.run(asked, capture_output=True)  # noqa: S603 - vswhere with fixed arguments
+    for folder in done.stdout.decode("utf-8", errors="replace").splitlines():
+        for inside in ("VC/Tools/Llvm/x64/bin", "VC/Tools/Llvm/bin"):
+            program = Path(folder.strip()) / inside / "clang-format.exe"
+            if folder.strip() and program.is_file():
+                return str(program)
+    return None
+
+
+def run_step(repo, step, files):
+    """Runs the command of a check in the repository's folder; its output is shown if it fails.
+
+    Where the check names `files`, the files of the repository that match are added to the command.
+    """
+    args, note = list(step["run"]), ""
+    if "files" in step:
+        chosen = [name for name in files if any(fnmatch.fnmatchcase(name, wanted) for wanted in step["files"])]
+        if not chosen:
+            return [], "no files"
+        args, note = args + chosen, counted(len(chosen), "file")
     try:
         real = command(args)
     except Failure as failure:
         return [str(failure)], ""
     done = subprocess.run(real, cwd=repo, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)  # noqa: S603 - a command of tools/repo.toml
     if done.returncode == 0:
-        return [], ""
-    return done.stdout.decode("utf-8", errors="replace").splitlines() or [f"exit code {done.returncode}"], ""
+        return [], note
+    return done.stdout.decode("utf-8", errors="replace").splitlines() or [f"exit code {done.returncode}"], note
 
 
 def check(repo, settings, full):
     """Runs every step, the built-in ones first, and says how each went. Returns 0 when all passed."""
-    files = tracked_files(repo)
-    built_in = [("version", version_step), ("licence header", licence_step), ("private data", private_step)]
+    files = repo_files(repo)
+    built_in = [("version", version_step)] if "version" in settings else []
+    built_in.append(("licence header", licence_step))
     if "Cargo.toml" in files:
-        built_in.insert(2, ("common lints", lints_step))
+        built_in.append(("common lints", lints_step))
+    built_in.append(("private data", private_step))
     steps = [(name, False, lambda step=step: step(repo, settings, files)) for name, step in built_in]
     for listed in settings.get("check", []):
-        steps.append((listed["name"], listed.get("full", False), lambda args=listed["run"]: run_step(repo, args)))
+        steps.append((listed["name"], listed.get("full", False), lambda listed=listed: run_step(repo, listed, files)))
 
     say(f"Checking {repo.name}" + (" (with -Full)" if full else ""))
     failed, skipped = [], 0
