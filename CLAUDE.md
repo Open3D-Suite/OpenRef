@@ -19,13 +19,17 @@ as a change that makes it old.
 ## Build and check
 
 - Build: `cargo build --release --locked`.
-- Checks, all of which must pass:
+- Checks: `tools\check.ps1` runs them all, and all must pass. It needs Python 3.11 or newer and the
+  ruff that `ruff.toml` names. First what `tools/repo.py` has built in, then the commands that
+  `tools/repo.toml` lists:
+  - the version agrees in `Cargo.toml`, `Cargo.lock` and the README; every source has its licence
+    line; `Cargo.toml` has the common lints; no file holds a path of somebody's computer
   - `cargo fmt --all --check`
   - `cargo clippy --workspace --all-targets --locked -- -D warnings`
-  - `cargo test --locked` (50 tests; none needs the network or another program)
-  - `ruff format --check .` and `ruff check .`, for `tools/package.py`
-- `.editorconfig`, `.gitattributes`, `rustfmt.toml`, `clippy.toml` and `ruff.toml` are the same in every
-  Open3D repo. Do not change them here.
+  - `cargo test --workspace --locked` (50 tests; none needs the network or another program)
+  - `ruff format --check .` and `ruff check .`, for the Python in `tools/`
+- `.editorconfig`, `.gitattributes`, `rustfmt.toml`, `clippy.toml`, `ruff.toml`, `LICENSE`,
+  `tools/check.ps1` and `tools/repo.py` are the same in every Open3D repo. Do not change them here.
 
 ## Version and release
 
