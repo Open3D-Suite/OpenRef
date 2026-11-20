@@ -34,8 +34,9 @@ run = ["ruff", "format", "--check", "."]
 name = "ruff check"
 run = ["ruff", "check", "."]
 
-# The release package: dist/openref-<version>-windows-x64.zip, with OpenRef.exe at its root, and
-# dist/SHA256SUMS.txt. The launcher installs it from there.
+# The release package: dist/openref-<version>-windows-x64.zip, with OpenRef.exe at its root, the
+# Windows Installer package dist/openref-<version>-windows-x64.msi, which installs the same files into
+# C:\Program Files\Open3D\OpenRef, and dist/SHA256SUMS.txt. The launcher installs them from there.
 [package]
 name = "OpenRef"
 build = [["cargo", "build", "--release", "--locked"]]
@@ -52,3 +53,10 @@ files = [
 ]
 exe = "OpenRef.exe"
 version_answer = "OpenRef {version}"
+
+[package.msi]
+# Made once for OpenRef and never changed: by it Windows knows that a new version replaces the old.
+upgrade_code = "D0C9DFAC-1B83-451B-AFEB-B384DB2C487E"
+shortcut = "OpenRef"
+# The icon build.rs gives OpenRef.exe, for Installed apps.
+icon = "assets/icon.ico"

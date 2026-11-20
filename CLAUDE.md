@@ -50,10 +50,15 @@ as a change that makes it old.
   dependencies in `THIRD-PARTY-LICENSES.txt`, then `dist/openref-<version>-windows-x64.zip` (`OpenRef.exe`,
   README, LICENSE, NOTICE, CHANGELOG, `LICENSES/*.txt`) and `dist/SHA256SUMS.txt`. It refuses an exe that
   holds a path of the computer that built it, or whose file version or `--version` is not the version.
+- From the `[package.msi]` table it also makes `dist/openref-<version>-windows-x64.msi` with WiX 5 (`wix`
+  on PATH or as a .NET global tool): the same files, for everyone on the computer, into
+  `C:\Program Files\Open3D\OpenRef`, with the Start menu shortcut `OpenRef` and `assets/icon.ico` in
+  Installed apps. It is checked before it is written (WiX's ICEs, and its own tables and files compared
+  with the zip) and never installed.
 - `python -I tools/repo.py release X.Y.Z` turns `## In development` into `## X.Y.Z — <date>`, sets the
   version, commits `Release X.Y.Z`, packages, tags `vX.Y.Z` and prints the pushes to approve; run again
-  once they are done, it makes the GitHub release as a draft. It never pushes. `--dry-run` tries it all
-  and writes only to `dist/`.
+  once they are done, it makes the GitHub release as a draft, with the zip, the MSI and
+  `SHA256SUMS.txt`. It never pushes. `--dry-run` tries it all and writes only to `dist/`.
 - The Open3D launcher needs `OpenRef.exe` at the root of the zip, with the release's version as its file
   version.
 
@@ -90,3 +95,5 @@ as a change that makes it old.
 - eframe's own clipboard shortcuts are switched off: the app handles copy and paste itself.
 - The launcher keeps its own copy of `assets/icon-256.png`; when the icon changes, that copy must change
   with it.
+- The `upgrade_code` of `[package.msi]` never changes: with another one, Windows would install a new
+  version beside the old one instead of in its place.

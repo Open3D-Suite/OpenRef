@@ -124,8 +124,9 @@ Rust (stable) on Windows 10 or 11, 64-bit:
 cargo build --release
 ```
 
-`python -I tools/repo.py package` runs the checks, builds and writes the release zip to `dist/`;
-`tools/make_icon.ps1` draws the icon.
+`python -I tools/repo.py package` runs the checks, builds and writes the release zip and the Windows
+installer (`.msi`, made with [WiX](https://wixtoolset.org) 5) to `dist/`; `tools/make_icon.ps1` draws
+the icon.
 
 ## Credits
 
