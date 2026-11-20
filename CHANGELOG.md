@@ -15,6 +15,8 @@ What changed for users in each version of OpenRef, newest first.
   copies what it finds in the old folders, `%APPDATA%\OpenRef` and `%LOCALAPPDATA%\OpenRef`, so nothing
   has to be set up again: the window, the language and a board left unsaved come back as they were. The
   old folders are left as they were, and an older OpenRef still finds its settings there.
+- **Nothing else to install.** The Visual C++ runtime is now inside `OpenRef.exe`, so it starts on a
+  Windows that has no Visual C++ Redistributable.
 
 ## 0.1.1 — 16 November 2026
 
