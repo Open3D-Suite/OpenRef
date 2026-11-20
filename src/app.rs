@@ -8,7 +8,7 @@ use crate::images::{self, ImageStore, Source};
 use crate::platform;
 use crate::scene::{Align, ItemKind, MatchSize, Scene};
 use crate::text::{Lang, tf, tr};
-use crate::{export, open3d_settings, recovery};
+use crate::{export, folders, open3d_settings, recovery};
 use eframe::egui::{self, Color32, Key, KeyboardShortcut, Modifiers, Vec2};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -18,9 +18,12 @@ pub const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "jfif", "bmp", "gi
 
 /// Opens the main window and runs until it is closed. `files` are boards or images to open.
 pub fn run(files: Vec<PathBuf>) -> eframe::Result<()> {
+    // Before eframe reads its settings: from now on they are in OpenRef's Open3D folder.
+    let folders = folders::prepare();
     let options = eframe::NativeOptions {
+        persistence_path: folders.settings_file.clone(),
         viewport: egui::ViewportBuilder::default()
-            .with_app_id("OpenRef")
+            .with_app_id(folders::APP)
             .with_title("OpenRef")
             .with_icon(eframe::icon_data::from_png_bytes(include_bytes!("../assets/icon-256.png")).unwrap_or_default())
             .with_inner_size([1000.0, 700.0])
@@ -35,7 +38,7 @@ pub fn run(files: Vec<PathBuf>) -> eframe::Result<()> {
         renderer: eframe::Renderer::Glow,
         ..Default::default()
     };
-    eframe::run_native("OpenRef", options, Box::new(move |cc| Ok(Box::new(OpenRefApp::new(cc, files)))))
+    eframe::run_native(folders::APP, options, Box::new(move |cc| Ok(Box::new(OpenRefApp::new(cc, files, folders)))))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -269,7 +272,7 @@ pub struct OpenRefApp {
 }
 
 impl OpenRefApp {
-    fn new(cc: &eframe::CreationContext<'_>, startup: Vec<PathBuf>) -> Self {
+    fn new(cc: &eframe::CreationContext<'_>, startup: Vec<PathBuf>, folders: folders::Folders) -> Self {
         let max_side = cc
             .gl
             .as_ref()
@@ -309,13 +312,17 @@ impl OpenRefApp {
             startup,
             picking: false,
             click_through: None,
-            autosave: recovery::Autosave::new(recovery::folder()),
-            offer: recovery::folder().and_then(|dir| recovery::find_orphan(&dir, platform::process_alive)),
+            offer: folders.recovery.as_deref().and_then(|dir| recovery::find_orphan(dir, platform::process_alive)),
+            autosave: recovery::Autosave::new(folders.recovery),
             exporting: None,
             shared_dir,
         };
         if let Err(error) = carried {
             app.say_with(&cc.egui_ctx, "The language could not be saved for the other Open3D apps: {error}", &[("error", &error)]);
+        }
+        if !folders.problems.is_empty() {
+            let error = folders.problems.join("; ");
+            app.say_with(&cc.egui_ctx, "Some files of the earlier OpenRef could not be copied to its new folders: {error}", &[("error", &error)]);
         }
         app
     }

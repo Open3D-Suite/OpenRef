@@ -195,6 +195,10 @@ const SPANISH: &[(&str, &str)] = &[
         "The language could not be saved for the other Open3D apps: {error}",
         "No se pudo guardar el idioma para las demás aplicaciones de Open3D: {error}",
     ),
+    (
+        "Some files of the earlier OpenRef could not be copied to its new folders: {error}",
+        "Algunos archivos del OpenRef anterior no se pudieron copiar a sus carpetas nuevas: {error}",
+    ),
     ("{hex} copied", "{hex} copiado"),
     // On the board.
     ("Cannot show this image", "No se puede mostrar esta imagen"),

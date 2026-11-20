@@ -11,10 +11,11 @@ as a change that makes it old.
 - `src/scene.rs`: the board's model, with no window code. Most tests are here.
 - `src/app.rs`: the window's actions, menus and shortcuts. `src/canvas.rs`: gestures, selection, drawing.
 - `src/board_file.rs`: the `.oref` file. `src/recovery.rs`: autosave. `src/export.rs`: exporting a board.
+- `src/folders.rs`: where OpenRef keeps its files, and carrying its old folders over at start.
 - `src/images.rs`: loading images and their textures. `src/history.rs`: undo and redo.
 - `src/platform.rs`: every call to Windows but one. `src/window.rs`: the frameless window. `src/text.rs`:
-  the English and Spanish texts. `src/open3d_settings.rs`: the language every Open3D app shares, with the
-  cases its tests read (`src/open3d_settings_cases.txt`).
+  the English and Spanish texts. `src/open3d_settings.rs`: what every Open3D app shares, the language and
+  the folders of each app, with the cases its tests read (`src/open3d_settings_cases.txt`).
 - `tools/make_icon.ps1`: draws the icons in `assets/`.
 
 ## Build and check
@@ -27,7 +28,7 @@ as a change that makes it old.
     line; `Cargo.toml` has the common lints; no file holds a path of somebody's computer
   - `cargo fmt --all --check`
   - `cargo clippy --workspace --all-targets --locked -- -D warnings`
-  - `cargo test --workspace --locked` (62 tests; none needs the network or another program)
+  - `cargo test --workspace --locked` (72 tests; none needs the network or another program)
   - `ruff format --check .` and `ruff check .`, for the Python in `tools/`
 - CI: `.github/workflows/check.yml` runs `tools\check.ps1`, without `-Full`, on every push and pull request
   to `main`, on GitHub's Windows runner with Python 3.14.
@@ -64,6 +65,13 @@ as a change that makes it old.
   a Spanish chosen here before is carried over once (`language_shared`), and otherwise the language of
   Windows decides: Spanish if it is Spanish, else English. A saved English is not carried over: it cannot
   be told apart from the old default. The Language menu writes the file and changes at once.
+- Its files, from `src/folders.rs`: eframe's `app.ron` (settings and window) in `%APPDATA%\Open3D\OpenRef`
+  (`persistence_path`), autosaves in `%LOCALAPPDATA%\Open3D\OpenRef\recovery`; `OPEN3D_SETTINGS_DIR` and
+  `OPEN3D_DATA_DIR` move them. In `run`, before eframe starts, `open3d_settings::carry_over` copies the old
+  folders into them once: eframe's own `%APPDATA%\OpenRef\data` and `%LOCALAPPDATA%\OpenRef`, which are
+  left as they were. If a copy fails, that run uses the old folder and the next start tries again; what
+  was not copied is said in a notice. Only debug builds read `OPENREF_TEST_OLD_FOLDERS`, a folder whose
+  `Roaming` and `Local` stand for the old ones in a test.
 - Shortcuts live in the `SHORTCUTS` table of `src/app.rs`, which also builds the menu. Avoid the `-`, `+`
   and `=` keys: they are awkward on Spanish keyboards.
 - `unsafe` is denied. It is allowed by name, with its reason, only where Windows or the graphics card is

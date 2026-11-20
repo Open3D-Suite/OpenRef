@@ -5,6 +5,7 @@ pub mod app;
 pub mod board_file;
 pub mod canvas;
 pub mod export;
+pub mod folders;
 pub mod history;
 pub mod images;
 // The language shared by every Open3D app: a copy of a common file. Its one call to Windows, for

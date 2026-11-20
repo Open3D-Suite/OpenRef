@@ -10,6 +10,11 @@ What changed for users in each version of OpenRef, newest first.
 - **If you never chose a language, OpenRef now follows Windows:** Spanish if Windows is in Spanish, English
   otherwise. Before, it always started in English. If you had chosen Spanish, it stays. If you had chosen
   English on a Windows in Spanish, choose English once more.
+- **OpenRef's files move to the Open3D folders:** its settings to `%APPDATA%\Open3D\OpenRef`, the copies
+  of unsaved boards to `%LOCALAPPDATA%\Open3D\OpenRef\recovery`. The first time the new version starts it
+  copies what it finds in the old folders, `%APPDATA%\OpenRef` and `%LOCALAPPDATA%\OpenRef`, so nothing
+  has to be set up again: the window, the language and a board left unsaved come back as they were. The
+  old folders are left as they were, and an older OpenRef still finds its settings there.
 
 ## 0.1.1 — 16 November 2026
 

@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Autosave: while a board has unsaved changes, a copy is written now and then to
-//! `%LOCALAPPDATA%\OpenRef\recovery` (a normal `.oref`, named after this process). A clean close
-//! removes it; if OpenRef stopped without closing, the next start finds it and offers it back.
+//! Autosave: while a board has unsaved changes, a copy is written now and then to the recovery
+//! folder, `%LOCALAPPDATA%\Open3D\OpenRef\recovery` (`folders.rs`; a normal `.oref`, named after this
+//! process). A clean close removes it; if OpenRef stopped without closing, the next start finds it
+//! and offers it back.
 
 use crate::board_file::{self, View};
 use crate::images::Source;
@@ -33,10 +34,6 @@ impl Orphan {
         let _ = std::fs::remove_file(&self.board);
         let _ = std::fs::remove_file(self.board.with_extension("json"));
     }
-}
-
-pub fn folder() -> Option<PathBuf> {
-    std::env::var_os("LOCALAPPDATA").map(|base| PathBuf::from(base).join("OpenRef").join("recovery"))
 }
 
 /// The newest copy whose OpenRef is no longer running.

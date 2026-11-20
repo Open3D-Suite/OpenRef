@@ -18,8 +18,10 @@ Two ways, and nothing else is needed:
   [releases page](https://github.com/carlesllavata/OpenRef/releases/latest), unzip it anywhere and
   run `OpenRef.exe`. To remove it, delete the folder.
 
-Removing OpenRef either way keeps its settings in `%APPDATA%\OpenRef` and any autosaved copy in
-`%LOCALAPPDATA%\OpenRef`; delete those folders too if you want them gone.
+Removing OpenRef either way keeps its settings in `%APPDATA%\Open3D\OpenRef` and any autosaved copy
+in `%LOCALAPPDATA%\Open3D\OpenRef`; delete those folders too if you want them gone. Version 0.1.1 and
+earlier kept them in `%APPDATA%\OpenRef` and `%LOCALAPPDATA%\OpenRef`: the first start of a newer
+version copies them to the new folders and leaves the old ones as they were, so those can go too.
 
 The program is not code-signed, so the first time Windows may show "Windows protected your PC":
 choose *More info* and then *Run anyway*. `SHA256SUMS.txt` on the release page lets you check the
@@ -56,7 +58,8 @@ A board is one `.oref` file with the original images inside, so it can be moved 
 own. It is a zip: `board.json` describes the board and `images/` holds the pictures, so any zip tool
 can take them out. OpenRef asks before closing or replacing a board with unsaved changes.
 
-While a board has unsaved changes, a copy is kept every minute in `%LOCALAPPDATA%\OpenRef\recovery`.
+While a board has unsaved changes, a copy is kept every minute in
+`%LOCALAPPDATA%\Open3D\OpenRef\recovery`.
 If OpenRef stops without closing, the next start offers the board back.
 
 ## Over another program
