@@ -2,7 +2,7 @@
 
 What changed for users in each version of OpenRef, newest first.
 
-## In development
+## 0.2.0 — 21 November 2026
 
 - **The same language as the Open3D launcher and the other Open3D apps.** Choosing English or Español in
   the Language menu now changes it for the launcher and the apps that share it too, the next time they

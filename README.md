@@ -5,7 +5,7 @@ and annotate them, and keep the board floating over 3ds Max or any other program
 program, no account. Part of the [Open3D](https://github.com/carlesllavata/Open3D) suite of
 open-source tools for 3D work.
 
-**Version 0.1.1** – what changed in each version is in [`CHANGELOG.md`](CHANGELOG.md).
+**Version 0.2.0** – what changed in each version is in [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Install
 
