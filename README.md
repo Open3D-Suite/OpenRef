@@ -53,7 +53,9 @@ leaves the old ones as they were, so those can go too.
   or no background, and four text sizes.
 - **Undo and redo** every change.
 - **Right-click** for every command, with its shortcut. **Window ▸ Language** switches between
-  English (the default) and Spanish.
+  English and Spanish, also for the Open3D launcher and the apps that share it, the next time they
+  start. Until a language is chosen, OpenRef follows Windows: Spanish if Windows is in Spanish,
+  English otherwise.
 
 ## Boards
 
