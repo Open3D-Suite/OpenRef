@@ -17,10 +17,12 @@ What changed for users in each version of OpenRef, newest first.
   old folders are left as they were, and an older OpenRef still finds its settings there.
 - **Nothing else to install.** The Visual C++ runtime is now inside `OpenRef.exe`, so it starts on a
   Windows that has no Visual C++ Redistributable.
-- **An installer is on its way.** Each release also carries `openref-<version>-windows-x64.msi`, which
-  installs OpenRef for everyone on the computer in `C:\Program Files\Open3D\OpenRef`, with a shortcut in
-  the Start menu; Windows asks for permission first. The Open3D launcher will use it in a coming
-  version; the zip stays as it is.
+- **An installer for everyone on the computer.** Each release also carries
+  `openref-<version>-windows-x64.msi`, which installs OpenRef in `C:\Program Files\Open3D\OpenRef`, with a
+  shortcut in the Start menu for every user. Windows asks for permission first and names no publisher
+  ("Unknown publisher"): the package is not signed yet. It is removed from Windows' Installed apps. The
+  Open3D launcher uses it from its version 0.4.0; the zip stays as it is, to unzip anywhere and for a
+  portable launcher.
 
 ## 0.1.1 — 16 November 2026
 
