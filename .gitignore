@@ -1,3 +1,4 @@
 /target/
 /dist/
 /.cargo/config.local.toml
+__pycache__/
