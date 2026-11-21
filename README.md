@@ -2,32 +2,35 @@
 
 Reference-image boards for artists: paste or drop images onto an infinite canvas, arrange, crop
 and annotate them, and keep the board floating over 3ds Max or any other program. A single Windows
-program, no install, no account. Part of the [Open3D](https://github.com/carlesllavata/Open3D)
-suite of open-source tools for 3D work.
+program, no account. Part of the [Open3D](https://github.com/carlesllavata/Open3D) suite of
+open-source tools for 3D work.
 
-**Version 0.1.1** – the first release, packaged again.
+**Version 0.1.1** – what changed in each version is in [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Install
 
-Two ways, and nothing else is needed:
+Windows 10 or 11, 64-bit, with a graphics driver that supports OpenGL (any current one does). Nothing
+else is needed. Two ways:
 
-- **With the [Open3D launcher](https://github.com/carlesllavata/Open3D)**, version 0.3.0 or later:
-  press *Install* on OpenRef's card. It goes in `%LOCALAPPDATA%\Programs\Open3D\OpenRef`, with
-  shortcuts in the Start menu and on the desktop, and the launcher updates it and removes it.
-- **By hand**: download `openref-<version>-windows-x64.zip` from the
-  [releases page](https://github.com/carlesllavata/OpenRef/releases/latest), unzip it anywhere and
-  run `OpenRef.exe`. To remove it, delete the folder.
+- **With the [Open3D launcher](https://github.com/carlesllavata/Open3D)**, version 0.4.0 or later:
+  press *Install* on OpenRef's card. It is installed for everyone on the computer in
+  `C:\Program Files\Open3D\OpenRef`, with a shortcut in the Start menu, and Windows asks for
+  permission at each install and update. The launcher updates it and removes it.
+- **By hand**, from the [releases page](https://github.com/carlesllavata/OpenRef/releases/latest):
+  `openref-<version>-windows-x64.msi` installs the same, in the same place. Or take
+  `openref-<version>-windows-x64.zip`, unzip it anywhere and run `OpenRef.exe`: nothing is installed
+  (a portable Open3D launcher uses this one).
 
-Removing OpenRef either way keeps its settings in `%APPDATA%\Open3D\OpenRef` and any autosaved copy
-in `%LOCALAPPDATA%\Open3D\OpenRef`; delete those folders too if you want them gone. Version 0.1.1 and
-earlier kept them in `%APPDATA%\OpenRef` and `%LOCALAPPDATA%\OpenRef`: the first start of a newer
-version copies them to the new folders and leaves the old ones as they were, so those can go too.
+The packages are not signed yet, so Windows' permission prompt says "Unknown publisher", and one
+downloaded by hand may first bring "Windows protected your PC": choose *More info* and then *Run
+anyway*. `SHA256SUMS.txt` on the release page lets you check the download.
 
-The program is not code-signed, so the first time Windows may show "Windows protected your PC":
-choose *More info* and then *Run anyway*. `SHA256SUMS.txt` on the release page lets you check the
-download.
-
-Windows 10 or 11, 64-bit, with a graphics driver that supports OpenGL (any current one does).
+To remove OpenRef, use the launcher, or Windows' *Settings ▸ Apps ▸ Installed apps* for the MSI; for
+the zip, delete its folder. Its settings stay in `%APPDATA%\Open3D\OpenRef` and any autosaved copy in
+`%LOCALAPPDATA%\Open3D\OpenRef`; delete those folders too if you want them gone (the launcher's
+uninstall has a box for that). Version 0.1.1 and earlier kept them in `%APPDATA%\OpenRef` and
+`%LOCALAPPDATA%\OpenRef`: the first start of a newer version copies them to the new folders and
+leaves the old ones as they were, so those can go too.
 
 ## The board
 
