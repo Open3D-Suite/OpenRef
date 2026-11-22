@@ -64,6 +64,8 @@ as a change that makes it old.
 
 ## Rules of this code
 
+- A bug that is fixed comes with a test that fails without the fix, and new logic comes with its tests.
+  The interface is tried by hand before a release.
 - The OpenGL renderer (`glow`) only: the transparent window and the see-through mode need it.
 - Every text of the interface is written with `tr`, `tf`, `t` or `say`, with the English text as its key.
   A test scans the sources and fails when a text has no Spanish.
