@@ -2,7 +2,7 @@
 
 Reference-image boards for artists: paste or drop images onto an infinite canvas, arrange, crop
 and annotate them, and keep the board floating over 3ds Max or any other program. A single Windows
-program, no account. Part of the [Open3D](https://github.com/carlesllavata/Open3D) suite of
+program, no account. Part of the [Open3D](https://github.com/Open3D-Suite/Open3D) suite of
 open-source tools for 3D work.
 
 **Version 0.2.0** – what changed in each version is in [`CHANGELOG.md`](CHANGELOG.md).
@@ -12,11 +12,11 @@ open-source tools for 3D work.
 Windows 10 or 11, 64-bit, with a graphics driver that supports OpenGL (any current one does). Nothing
 else is needed. Two ways:
 
-- **With the [Open3D launcher](https://github.com/carlesllavata/Open3D)**, version 0.4.0 or later:
+- **With the [Open3D launcher](https://github.com/Open3D-Suite/Open3D)**, version 0.4.0 or later:
   press *Install* on OpenRef's card. It is installed for everyone on the computer in
   `C:\Program Files\Open3D\OpenRef`, with a shortcut in the Start menu, and Windows asks for
   permission at each install and update. The launcher updates it and removes it.
-- **By hand**, from the [releases page](https://github.com/carlesllavata/OpenRef/releases/latest):
+- **By hand**, from the [releases page](https://github.com/Open3D-Suite/OpenRef/releases/latest):
   `openref-<version>-windows-x64.msi` installs the same, in the same place. Or take
   `openref-<version>-windows-x64.zip`, unzip it anywhere and run `OpenRef.exe`: nothing is installed
   (a portable Open3D launcher uses this one).
